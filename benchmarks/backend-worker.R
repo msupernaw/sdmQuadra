@@ -47,6 +47,7 @@ if (identical(model, "spatiotemporal")) {
 fit_time <- system.time({
   fit <- do.call(sdmTMB, arguments)
 })[["elapsed"]]
+max_gradient <- max(abs(fit$tmb_obj$gr(fit$model$par)))
 
 newdata <- pcod_2011[
   rep(seq_len(nrow(pcod_2011)), length.out = n_predictions), ,
@@ -79,6 +80,7 @@ cat(
   sprintf("objective=%.10f\n", fit$model$objective),
   sprintf("convergence=%d\n", fit$model$convergence),
   sprintf("iterations=%d\n", fit$model$iterations),
+  sprintf("max_gradient=%.10g\n", max_gradient),
   sprintf("prediction_median_seconds=%.6f\n", median(prediction_times)),
   sprintf("prediction_minimum_seconds=%.6f\n", min(prediction_times)),
   sprintf("prediction_maximum_seconds=%.6f\n", max(prediction_times)),

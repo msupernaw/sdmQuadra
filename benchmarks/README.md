@@ -248,26 +248,28 @@ gradient to R's `nlminb`.
 
 Each row ran in a fresh process and includes fitting, fixed and random-effect
 uncertainty, a 5,000-row prediction warm-up, and three measured marginal
-prediction calls. Peak RSS was sampled every 5 milliseconds.
+prediction calls. Peak RSS was sampled every 5 milliseconds. The benchmark
+output also reports the maximum absolute fixed-effect gradient so convergence
+quality can be compared alongside runtime.
 
 ### Spatial model
 
-| Backend / optimizer | Fit seconds | Prediction median seconds | Peak RSS (MiB) |
-|---|---:|---:|---:|
-| Quadra + `nlminb` | 0.095 | 0.006 | 282.1 |
-| Quadra + native L-BFGS | 0.144 | 0.007 | 286.6 |
-| TMB + `nlminb` | 0.151 | 1.487 | 933.3 |
+| Backend / optimizer | Fit seconds | Prediction median seconds | Peak RSS (MiB) | Max. \|gradient\| |
+|---|---:|---:|---:|---:|
+| Quadra + `nlminb` | 0.095 | 0.006 | 282.1 | 3.12e-4 |
+| Quadra + native L-BFGS | 0.144 | 0.007 | 286.6 | 1.06e-5 |
+| TMB + `nlminb` | 0.151 | 1.487 | 933.3 | 7.11e-4 |
 
 The native L-BFGS fit converged in 30 iterations to objective
 2355.1547171330.
 
 ### Spatial + IID spatiotemporal model
 
-| Backend / optimizer | Fit seconds | Prediction median seconds | Peak RSS (MiB) |
-|---|---:|---:|---:|
-| Quadra + `nlminb` | 0.603 | 0.218 | 327.9 |
-| Quadra + native L-BFGS | 0.798 | 0.240 | 334.4 |
-| TMB + `nlminb` | 0.366 | 4.479 | 1,139.5 |
+| Backend / optimizer | Fit seconds | Prediction median seconds | Peak RSS (MiB) | Max. \|gradient\| |
+|---|---:|---:|---:|---:|
+| Quadra + `nlminb` | 0.603 | 0.218 | 327.9 | 2.69e-4 |
+| Quadra + native L-BFGS | 0.798 | 0.240 | 334.4 | 6.38e-5 |
+| TMB + `nlminb` | 0.366 | 4.479 | 1,139.5 | 4.41e-5 |
 
 The native L-BFGS fit converged in 41 iterations to objective
 2347.2627939846.

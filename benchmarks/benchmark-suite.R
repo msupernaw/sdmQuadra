@@ -56,6 +56,7 @@ run_worker <- function(backend, model) {
     objective = as.numeric(values[["objective"]]),
     convergence = as.integer(values[["convergence"]]),
     iterations = as.integer(values[["iterations"]]),
+    max_gradient = as.numeric(values[["max_gradient"]]),
     prediction_median_seconds =
       as.numeric(values[["prediction_median_seconds"]]),
     prediction_minimum_seconds =
