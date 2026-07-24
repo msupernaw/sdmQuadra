@@ -176,42 +176,199 @@ Quadra's subsequent marginal prediction-uncertainty calculation was
 approximately 21 times faster and its full-process peak RSS was approximately
 29% of TMB's.
 
-### Quadra diagnostics
+### Complete Quadra diagnostics suite
 
-The same Quadra `nlminb` fits produced the following optimization and latent
-structure diagnostics. The fixed-effect gradient is the maximum absolute exact
-Laplace-gradient component at the optimum. The random-effect gradient norm is
-reported after the final conditional Gaussian Newton update.
+The following sections reproduce the full format of the
+[FIMS Quadra diagnostics report](https://github.com/NOAA-FIMS/FIMS/blob/feature/quadra-backend/tests/quadra-diagnostics.md):
+model health, optimization, effective structure, backend recommendation,
+uncertainty graph, latent states, spectral structure, and the most influential
+random effects. Curvature diagnostics analyze the random-effect Hessian,
+\(H_{uu}\). Fixed gradients are exact Laplace gradients.
 
-| Model | Objective | Outer iterations | Objective / gradient evaluations | Random effects | Random Hessian nonzeros | Max. \|fixed gradient\| | Random gradient norm |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Spatial | 2355.154717 | 18 | 22 / 19 | 76 | 1,208 | 3.12e-4 | 1.34e-19 |
-| Spatial + IID spatiotemporal | 2347.262794 | 24 | 36 / 25 | 380 | 9,018 | 2.69e-4 | 3.35e-19 |
+#### Spatial model
 
-Post-fit uncertainty diagnostics were also successful for both models:
+##### Executive summary and model health
 
-| Model | Fixed Hessian positive definite | Eigenvalue range | Condition number | Fixed covariance | Random-effect marginal uncertainty |
-|---|---:|---:|---:|---|---|
-| Spatial | Yes | 2.056–1,833.180 | 891.4 | Success | Success |
-| Spatial + IID spatiotemporal | Yes | 1.326–1,715.993 | 1,293.8 | Success | Success |
+- Overall status: `HEALTHY`
+- Confidence: `HIGH`
+- Optimization quality: `EXCELLENT`
+- Gradient quality: `PASS`
+- Curvature: `PASS`
+- Conditioning: `EXCELLENT`
 
-The Quadra functional diagnostics suite also analyzed the spectrum of the
-random-effect Hessian, \(H_{uu}\). Unlike the preceding fixed-effect Hessian
-diagnostics, these results describe curvature across the latent spatial
-fields. Effective rank is the exponential of spectral entropy, and the
-curvature-count columns give the number of leading eigen-directions required
-to reach each cumulative share.
+| Check | Status |
+|---|---:|
+| Optimization | `PASS` |
+| Gradient | `PASS` |
+| Curvature | `PASS` |
+| Conditioning | `EXCELLENT` |
+| Overall | `HEALTHY` |
 
-| Model | Positive definite | Eigenvalue range | Condition number | Largest eigenvalue share | Effective rank | 50% | 90% | 95% | 99% |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Spatial | Yes | 0.04294–3.94582 | 91.9 | 4.23% | 53.5 of 76 | 18 | 44 | 51 | 67 |
-| Spatial + IID spatiotemporal | Yes | 0.04357–5.53990 | 127.2 | 1.06% | 310.8 of 380 | 107 | 270 | 306 | 350 |
+##### Optimization
 
-The suite's structural summary found 1,208 nonzero entries in the spatial
-\(H_{uu}\), a density of 20.9%, and 9,018 nonzero entries in the IID
-spatiotemporal \(H_{uu}\), a density of 6.25%. The dispersed spectra and high
-entropy-effective ranks indicate that neither model's latent curvature is
-dominated by a small number of directions.
+| Quantity | Value |
+|---|---:|
+| Laplace objective | `2355.154717` |
+| Joint objective | `2437.073811` |
+| Fixed gradient norm | `0.000314101` |
+| Random gradient norm | `1.336e-19` |
+| Joint gradient norm | `0.000314101` |
+| Maximum-gradient parameter | `log_sigma` |
+| Maximum absolute gradient | `0.000311984` |
+| Outer iterations | `18` |
+| Objective / gradient evaluations | `22 / 19` |
+| Diagnostic convergence | `yes` |
+
+##### Curvature and effective structure
+
+| Quantity | Value |
+|---|---:|
+| Random effects | `76` |
+| Positive definite | `yes` |
+| Condition number | `91.8849` |
+| Structural density | `0.209141` |
+| Structural nonzeros | `1,208` |
+| Entries retaining 95% curvature | `286` |
+| Bandwidth retaining 95% curvature | `27` |
+| Hessian jitter | `0` |
+
+##### Quadra recommendation
+
+- Detected structure: `sparse_pattern`
+- Factorization backend: `sparse_ldlt`
+- Full structural bandwidth: `71`
+- Reason: fill ratio is below the dense threshold and bandwidth exceeds the
+  banded-backend threshold; sparse LDLT is preferred.
+
+##### Uncertainty and correlation graph
+
+- Fixed covariance: `SUCCESS`
+- Random-effect marginal uncertainty: `SUCCESS`
+- Maximum absolute latent correlation: `0.632735`
+- Correlation graph nodes / edges: `76 / 4`
+- Connected components: `72`
+- Largest component: `3`
+- Maximum degree: `2`
+- Maximum-degree parameter: `spatial_node_56`
+
+##### Latent states
+
+- Count: `76`
+- Mean: `0.0696594`
+- Standard deviation: `1.67948`
+- Range: `[-5.33399, 3.82142]`
+
+##### Spectral structure
+
+- Eigenvalue range: `[0.0429430, 3.94582]`
+- Entropy effective rank: `53.4746`
+- Largest eigenvalue share: `0.0423232`
+- Eigen-directions for 50% curvature: `18`
+- Eigen-directions for 90% curvature: `44`
+- Eigen-directions for 95% curvature: `51`
+- Eigen-directions for 99% curvature: `67`
+
+##### Most influential random effects
+
+| Rank | Parameter | Importance share | Conditional SD |
+|---:|---|---:|---:|
+| 1 | `spatial_node_41` | `0.0271870` | `0.603420` |
+| 2 | `spatial_node_21` | `0.0261753` | `0.678483` |
+| 3 | `spatial_node_17` | `0.0247628` | `0.610667` |
+| 4 | `spatial_node_33` | `0.0241552` | `0.652813` |
+| 5 | `spatial_node_3` | `0.0240511` | `0.623786` |
+
+#### Spatial + IID spatiotemporal model
+
+##### Executive summary and model health
+
+- Overall status: `HEALTHY`
+- Confidence: `MODERATE`
+- Optimization quality: `GOOD`
+- Gradient quality: `PASS`
+- Curvature: `PASS`
+- Conditioning: `GOOD`
+
+| Check | Status |
+|---|---:|
+| Optimization | `PASS` |
+| Gradient | `PASS` |
+| Curvature | `PASS` |
+| Conditioning | `GOOD` |
+| Overall | `HEALTHY` |
+
+##### Optimization
+
+| Quantity | Value |
+|---|---:|
+| Laplace objective | `2347.262794` |
+| Joint objective | `2683.936238` |
+| Fixed gradient norm | `0.000284908` |
+| Random gradient norm | `3.348e-19` |
+| Joint gradient norm | `0.000284908` |
+| Maximum-gradient parameter | `log_sigma` |
+| Maximum absolute gradient | `0.000268784` |
+| Outer iterations | `24` |
+| Objective / gradient evaluations | `36 / 25` |
+| Diagnostic convergence | `yes` |
+
+##### Curvature and effective structure
+
+| Quantity | Value |
+|---|---:|
+| Random effects | `380` |
+| Positive definite | `yes` |
+| Condition number | `127.159` |
+| Structural density | `0.0624515` |
+| Structural nonzeros | `9,018` |
+| Entries retaining 95% curvature | `3,591` |
+| Bandwidth retaining 95% curvature | `249` |
+| Hessian jitter | `0` |
+
+##### Quadra recommendation
+
+- Detected structure: `sparse_pattern`
+- Factorization backend: `sparse_ldlt`
+- Full structural bandwidth: `370`
+- Reason: low fill ratio and wide cross-field coupling favor sparse LDLT.
+
+##### Uncertainty and correlation graph
+
+- Fixed covariance: `SUCCESS`
+- Random-effect marginal uncertainty: `SUCCESS`
+- Maximum absolute latent correlation: `0.667324`
+- Correlation graph nodes / edges: `380 / 20`
+- Connected components: `360`
+- Largest component: `3`
+- Maximum degree: `2`
+- Maximum-degree parameter: `spatial_node_56`
+
+##### Latent states
+
+- Count: `380`
+- Mean: `0.0163418`
+- Standard deviation: `0.813674`
+- Range: `[-5.07553, 3.90755]`
+
+##### Spectral structure
+
+- Eigenvalue range: `[0.0435668, 5.53990]`
+- Entropy effective rank: `310.843`
+- Largest eigenvalue share: `0.0106014`
+- Eigen-directions for 50% curvature: `107`
+- Eigen-directions for 90% curvature: `270`
+- Eigen-directions for 95% curvature: `306`
+- Eigen-directions for 99% curvature: `350`
+
+##### Most influential random effects
+
+| Rank | Parameter | Importance share | Conditional SD |
+|---:|---|---:|---:|
+| 1 | `spatial_node_17` | `0.00695661` | `0.742428` |
+| 2 | `spatial_node_3` | `0.00663857` | `0.728211` |
+| 3 | `spatial_node_33` | `0.00658423` | `0.759298` |
+| 4 | `spatial_node_21` | `0.00654241` | `0.787878` |
+| 5 | `spatial_node_5` | `0.00632948` | `0.800674` |
 
 ### Scope
 
