@@ -195,6 +195,24 @@ Post-fit uncertainty diagnostics were also successful for both models:
 | Spatial | Yes | 2.056–1,833.180 | 891.4 | Success | Success |
 | Spatial + IID spatiotemporal | Yes | 1.326–1,715.993 | 1,293.8 | Success | Success |
 
+The Quadra functional diagnostics suite also analyzed the spectrum of the
+random-effect Hessian, \(H_{uu}\). Unlike the preceding fixed-effect Hessian
+diagnostics, these results describe curvature across the latent spatial
+fields. Effective rank is the exponential of spectral entropy, and the
+curvature-count columns give the number of leading eigen-directions required
+to reach each cumulative share.
+
+| Model | Positive definite | Eigenvalue range | Condition number | Largest eigenvalue share | Effective rank | 50% | 90% | 95% | 99% |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Spatial | Yes | 0.04294–3.94582 | 91.9 | 4.23% | 53.5 of 76 | 18 | 44 | 51 | 67 |
+| Spatial + IID spatiotemporal | Yes | 0.04357–5.53990 | 127.2 | 1.06% | 310.8 of 380 | 107 | 270 | 306 | 350 |
+
+The suite's structural summary found 1,208 nonzero entries in the spatial
+\(H_{uu}\), a density of 20.9%, and 9,018 nonzero entries in the IID
+spatiotemporal \(H_{uu}\), a density of 6.25%. The dispersed spectra and high
+entropy-effective ranks indicate that neither model's latent curvature is
+dominated by a small number of directions.
+
 ### Scope
 
 These numbers compare the current user-facing implementations, not isolated
