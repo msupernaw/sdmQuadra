@@ -866,7 +866,7 @@ public:
     anchor_logdet_q_ = precision_logdet(fixed);
     workspace_.reset(new quadra::RandomEffectHessianWorkspace<
                      PoissonSpdeFieldModel>(
-        *model_, fixed, random_, partition_));
+        *model_, fixed, random_, partition_, false));
   }
 
   PersistentPoissonResult Evaluate(const std::vector<double> &fixed,
@@ -886,6 +886,8 @@ public:
     newton_options.max_iterations_m = 100;
     newton_options.gradient_tolerance_m = 1e-6;
     newton_options.step_tolerance_m = 1e-12;
+    newton_options.use_backtracking_m = !gaussian_;
+    newton_options.quadratic_objective_m = gaussian_;
     quadra::RandomEffectNewtonResult newton =
         quadra::optimize_random_effects_newton(
             *model_, *workspace_, fixed, random_, partition_, newton_options);
@@ -1046,11 +1048,9 @@ private:
            (2.0 * kappa2) * M1_cache_ + M2_cache_;
   }
 
-  double precision_logdet(const std::vector<double> &fixed) const {
-    bool ok = false;
-    const double value = quadra::sparse_ldlt_logdet(precision(fixed), ok);
-    if (!ok) throw std::runtime_error("SPDE precision is not positive definite");
-    return value;
+  double precision_logdet(const std::vector<double> &fixed) {
+    precision_factorization_.factorize(precision(fixed));
+    return precision_factorization_.logdet();
   }
 
   std::vector<double>
@@ -1229,6 +1229,7 @@ private:
   std::unique_ptr<quadra::LaplaceImplicitWorkspace> implicit_cache_;
   Eigen::MatrixXd covariance_cache_;
   Eigen::SparseMatrix<double> M0_cache_, M1_cache_, M2_cache_;
+  quadra::SparseLDLTFactorizationCache precision_factorization_;
   std::vector<double> cached_fixed_;
   quadra::LaplaceObjectiveResult cached_center_;
   bool has_cached_center_ = false;
@@ -1282,7 +1283,7 @@ public:
     anchor_logdet_q_st_ = precision_logdet(fixed, true);
     workspace_.reset(new quadra::RandomEffectHessianWorkspace<
                      PoissonSpatiotemporalIidModel>(
-        *model_, fixed, random_, partition_));
+        *model_, fixed, random_, partition_, false));
   }
 
   PersistentPoissonResult Evaluate(const std::vector<double> &fixed,
@@ -1304,6 +1305,8 @@ public:
     options.max_iterations_m = 100;
     options.gradient_tolerance_m = 1e-6;
     options.step_tolerance_m = 1e-12;
+    options.use_backtracking_m = !gaussian_;
+    options.quadratic_objective_m = gaussian_;
     quadra::RandomEffectNewtonResult newton =
         quadra::optimize_random_effects_newton(
             *model_, *workspace_, fixed, random_, partition_, options);
@@ -1489,12 +1492,12 @@ private:
   }
 
   double precision_logdet(const std::vector<double> &fixed,
-                          bool spatiotemporal) const {
-    bool ok = false;
-    const double value =
-        quadra::sparse_ldlt_logdet(precision(fixed, spatiotemporal), ok);
-    if (!ok) throw std::runtime_error("SPDE precision is not positive definite");
-    return value;
+                          bool spatiotemporal) {
+    auto &factorization = spatiotemporal
+        ? spatiotemporal_precision_factorization_
+        : spatial_precision_factorization_;
+    factorization.factorize(precision(fixed, spatiotemporal));
+    return factorization.logdet();
   }
 
   std::vector<double>
@@ -1852,6 +1855,8 @@ private:
   std::unique_ptr<quadra::LaplaceImplicitWorkspace> implicit_cache_;
   Eigen::MatrixXd covariance_cache_;
   Eigen::SparseMatrix<double> M0_cache_, M1_cache_, M2_cache_;
+  quadra::SparseLDLTFactorizationCache spatial_precision_factorization_;
+  quadra::SparseLDLTFactorizationCache spatiotemporal_precision_factorization_;
   std::vector<double> cached_fixed_;
   quadra::LaplaceObjectiveResult cached_center_;
   bool has_cached_center_ = false;

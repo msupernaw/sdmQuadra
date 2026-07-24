@@ -42,8 +42,10 @@ template <class Model> class RandomEffectHessianWorkspace {
 public:
   RandomEffectHessianWorkspace(Model &model, const std::vector<double> &fixed,
       const std::vector<double> &random,
-                               const ParameterPartition &partition)
-      : model_(model), partition_(partition) {
+                               const ParameterPartition &partition,
+                               bool collect_reports = true)
+      : model_(model), partition_(partition),
+        collect_reports_(collect_reports) {
     had::g_ADGraph = &tape_.graph;
     ModelReportContext ctx;
     model_.initialize(ctx);
@@ -115,30 +117,51 @@ public:
       }
     }
 
-    std::vector<Eigen::Triplet<double>> triplets;
-    triplets.reserve(pattern_.size());
-    for (const auto &ij : pattern_) {
-      const double value =
-          get_hessian(full_ad_[random_idx_[static_cast<size_t>(ij.first)]],
-                      full_ad_[random_idx_[static_cast<size_t>(ij.second)]]);
-      if (std::abs(value) > drop_tol)
-        triplets.emplace_back(ij.first, ij.second, value);
-    }
     Eigen::SparseMatrix<double> H(static_cast<int>(random.size()),
                                   static_cast<int>(random.size()));
-    H.setFromTriplets(triplets.begin(), triplets.end());
-
-    ModelReportContext report_ctx;
-    model_.initialize(report_ctx);
-    (void)evaluate_fixed_random<Model, double>(
-        model_, fixed, random, partition_, report_ctx);
+    if (drop_tol == 0.0) {
+      if (hessian_pattern_template_.rows() == 0) {
+        std::vector<Eigen::Triplet<double>> entries;
+        entries.reserve(pattern_.size());
+        for (const auto &ij : pattern_)
+          entries.emplace_back(ij.first, ij.second, 0.0);
+        hessian_pattern_template_.resize(
+            static_cast<int>(random.size()), static_cast<int>(random.size()));
+        hessian_pattern_template_.setFromTriplets(
+            entries.begin(), entries.end());
+        hessian_pattern_template_.makeCompressed();
+      }
+      H = hessian_pattern_template_;
+      for (int outer = 0; outer < H.outerSize(); ++outer)
+        for (Eigen::SparseMatrix<double>::InnerIterator it(H, outer); it; ++it)
+          it.valueRef() = get_hessian(
+              full_ad_[random_idx_[static_cast<size_t>(it.row())]],
+              full_ad_[random_idx_[static_cast<size_t>(it.col())]]);
+    } else {
+      std::vector<Eigen::Triplet<double>> entries;
+      entries.reserve(pattern_.size());
+      for (const auto &ij : pattern_) {
+        const double value =
+            get_hessian(full_ad_[random_idx_[static_cast<size_t>(ij.first)]],
+                        full_ad_[random_idx_[static_cast<size_t>(ij.second)]]);
+        if (std::abs(value) > drop_tol)
+          entries.emplace_back(ij.first, ij.second, value);
+      }
+      H.setFromTriplets(entries.begin(), entries.end());
+    }
 
     RandomEffectHessianResult result;
     result.objective_value_m = value_of(objective_);
     result.fixed_m = fixed;
     result.random_m = random;
     result.full_m = merge_parameters(fixed, random, partition_);
-    result.reports_m = report_ctx.reports().values();
+    if (collect_reports_) {
+      ModelReportContext report_ctx;
+      model_.initialize(report_ctx);
+      (void)evaluate_fixed_random<Model, double>(
+          model_, fixed, random, partition_, report_ctx);
+      result.reports_m = report_ctx.reports().values();
+    }
     result.hessian_random_m = std::move(H);
     result.gradient_random_m.resize(static_cast<size_t>(g.size()));
     for (int i = 0; i < g.size(); ++i)
@@ -202,7 +225,9 @@ private:
   LaplaceGraphPlan graph_plan_;
   std::vector<int> random_idx_;
   SparseHessianPattern pattern_;
+  Eigen::SparseMatrix<double> hessian_pattern_template_;
   SparseLDLTFactorizationCache newton_factorization_;
+  bool collect_reports_ = true;
 };
 
 // Evaluate f(theta, u), gradient wrt u, and sparse Hessian wrt u.

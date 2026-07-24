@@ -256,9 +256,9 @@ quality can be compared alongside runtime.
 
 | Backend / optimizer | Fit seconds | Prediction median seconds | Peak RSS (MiB) | Max. \|gradient\| |
 |---|---:|---:|---:|---:|
-| Quadra + `nlminb` | 0.095 | 0.006 | 282.1 | 3.12e-4 |
-| Quadra + native L-BFGS | 0.144 | 0.007 | 286.6 | 1.06e-5 |
-| TMB + `nlminb` | 0.151 | 1.487 | 933.3 | 7.11e-4 |
+| Quadra + `nlminb` | 0.056 | 0.005 | 304.9 | 3.12e-4 |
+| Quadra + native L-BFGS | 0.080 | 0.005 | 300.0 | 1.06e-5 |
+| TMB + `nlminb` | 0.131 | 1.356 | 1,000.5 | 7.11e-4 |
 
 The native L-BFGS fit converged in 30 iterations to objective
 2355.1547171330.
@@ -267,9 +267,9 @@ The native L-BFGS fit converged in 30 iterations to objective
 
 | Backend / optimizer | Fit seconds | Prediction median seconds | Peak RSS (MiB) | Max. \|gradient\| |
 |---|---:|---:|---:|---:|
-| Quadra + `nlminb` | 0.603 | 0.218 | 327.9 | 2.69e-4 |
-| Quadra + native L-BFGS | 0.798 | 0.240 | 334.4 | 6.38e-5 |
-| TMB + `nlminb` | 0.366 | 4.479 | 1,139.5 | 4.41e-5 |
+| Quadra + `nlminb` | 0.371 | 0.202 | 352.0 | 2.69e-4 |
+| Quadra + native L-BFGS | 0.487 | 0.203 | 348.3 | 6.38e-5 |
+| TMB + `nlminb` | 0.320 | 4.168 | 1,204.3 | 4.41e-5 |
 
 The native L-BFGS fit converged in 41 iterations to objective
 2347.2627939846.
@@ -278,12 +278,19 @@ The native optimizer uses value-only profiled evaluations during backtracking
 and requests one exact Laplace gradient at each accepted point. Its
 steepest-descent initialization is normalized when no curvature history is
 available; the unscaled initial gradients had norms of approximately 247 and
-313 and previously caused a long sequence of rejected profiles. Together these
-changes reduced optimization-only time from approximately 1.3 to 0.11 seconds
-spatially and from 6.6 to 0.58 seconds spatiotemporally. In the complete
-fit-and-uncertainty workload above, native L-BFGS is close to `nlminb`
-spatially, while its additional outer iterations leave it approximately 32%
-slower on the IID spatiotemporal model.
+313 and previously caused a long sequence of rejected profiles.
+
+Gaussian fits now also use the quadratic structure of the conditional
+random-effect objective. A full Newton step is exact, so Quadra updates the
+objective and gradient algebraically instead of replaying the random-effect
+Hessian and running an Armijo line search at the accepted point. Report-free
+bridge models skip a redundant ordinary-double model evaluation, Hessian
+matrices reuse their compressed sparse pattern, and SPDE precision
+factorizations reuse symbolic analysis. Together these changes reduced the
+complete spatial fit from approximately 0.095 to 0.056 seconds and the IID
+spatiotemporal fit from approximately 0.603 to 0.371 seconds. Quadra is now
+approximately 16% slower than TMB on the complete IID spatiotemporal fit,
+instead of approximately 65% slower in the earlier measurement.
 
 Reproduce the complete comparison with:
 

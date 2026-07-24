@@ -4,6 +4,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <Eigen/SparseCholesky>
@@ -21,6 +22,7 @@ struct RandomEffectNewtonOptions {
   double sufficient_decrease_m = 1e-4;
   double hessian_drop_tol_m = 0.0;
   bool use_backtracking_m = true;
+  bool quadratic_objective_m = false;
 };
 
 struct RandomEffectNewtonResult {
@@ -235,7 +237,27 @@ inline RandomEffectNewtonResult optimize_random_effects_newton(
 
     bool accepted = false;
 
-    while (alpha >= options.min_step_scale_m) {
+    if (options.quadratic_objective_m) {
+      candidate_u = add_scaled_step(u, step, alpha);
+      const Eigen::VectorXd hessian_step =
+          eval.hessian_random_m * (alpha * step);
+      const Eigen::VectorXd candidate_gradient = g + hessian_step;
+      const double candidate_objective =
+          eval.objective_value_m + alpha * g.dot(step) +
+          0.5 * alpha * step.dot(hessian_step);
+      candidate_eval = std::move(eval);
+      candidate_eval.objective_value_m = candidate_objective;
+      candidate_eval.random_m = candidate_u;
+      candidate_eval.full_m =
+          merge_parameters(fixed, candidate_u, partition);
+      candidate_eval.gradient_random_m =
+          eigen_to_std_vector(candidate_gradient);
+      candidate_eval.gradient_norm_m = candidate_gradient.norm();
+      accepted = true;
+    }
+
+    while (!options.quadratic_objective_m &&
+           alpha >= options.min_step_scale_m) {
       candidate_u = add_scaled_step(u, step, alpha);
 
       candidate_eval = hessian_workspace.Evaluate(
@@ -261,7 +283,7 @@ inline RandomEffectNewtonResult optimize_random_effects_newton(
     }
 
     u = candidate_u;
-    eval = candidate_eval;
+    eval = std::move(candidate_eval);
     result.iterations_m = iter + 1;
 
     if (eval.gradient_norm_m <= options.gradient_tolerance_m) {

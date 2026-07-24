@@ -921,6 +921,7 @@ test_that("Quadra supports weighted Gaussian spatiotemporal models", {
     )
     expect_true("log_sigma" %in% names(fit$quadra_obj$par))
     expect_true(is.finite(fit$quadra_obj$fn()))
+    expect_identical(fit$quadra_obj$env$last.eval$iterations, 1L)
     expect_true(all(is.finite(fit$quadra_obj$gr())))
     report <- fit$quadra_obj$report()
     expect_true(is.finite(report$sigma) && report$sigma > 0)
