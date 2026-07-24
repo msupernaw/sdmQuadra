@@ -176,6 +176,25 @@ Quadra's subsequent marginal prediction-uncertainty calculation was
 approximately 21 times faster and its full-process peak RSS was approximately
 29% of TMB's.
 
+### Quadra diagnostics
+
+The same Quadra `nlminb` fits produced the following optimization and latent
+structure diagnostics. The fixed-effect gradient is the maximum absolute exact
+Laplace-gradient component at the optimum. The random-effect gradient norm is
+reported after the final conditional Gaussian Newton update.
+
+| Model | Objective | Outer iterations | Objective / gradient evaluations | Random effects | Random Hessian nonzeros | Max. \|fixed gradient\| | Random gradient norm |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Spatial | 2355.154717 | 18 | 22 / 19 | 76 | 1,208 | 3.12e-4 | 1.34e-19 |
+| Spatial + IID spatiotemporal | 2347.262794 | 24 | 36 / 25 | 380 | 9,018 | 2.69e-4 | 3.35e-19 |
+
+Post-fit uncertainty diagnostics were also successful for both models:
+
+| Model | Fixed Hessian positive definite | Eigenvalue range | Condition number | Fixed covariance | Random-effect marginal uncertainty |
+|---|---:|---:|---:|---|---|
+| Spatial | Yes | 2.056–1,833.180 | 891.4 | Success | Success |
+| Spatial + IID spatiotemporal | Yes | 1.326–1,715.993 | 1,293.8 | Success | Success |
+
 ### Scope
 
 These numbers compare the current user-facing implementations, not isolated
