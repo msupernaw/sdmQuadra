@@ -178,6 +178,11 @@ NULL
 #'   parameter transformations when priors are applied.
 #' @param experimental A named list for esoteric or in-development options. Here
 #'   be dragons.
+#' @param backend Computational backend. The default `"tmb"` retains the
+#'   established implementation. Experimental `"quadra"` currently supports
+#'   Gaussian identity-link and Poisson log-link isotropic SPDE models.
+#'   Poisson models may also include IID, AR1, or random-walk spatiotemporal
+#'   fields with a shared spatial range.
 #   (Experimental) A column name (as character) of a predictor of a
 #   linear trend (in log space) of the spatiotemporal standard deviation. By
 #   default, this is `NULL` and fits a model with a constant spatiotemporal
@@ -652,7 +657,19 @@ sdmTMB <- function(
     do_index = FALSE,
     predict_args = NULL,
     index_args = NULL,
-    experimental = NULL) {
+    experimental = NULL,
+    backend = c("tmb", "quadra")) {
+  backend <- match.arg(tolower(backend[1L]), c("tmb", "quadra"))
+  if (identical(backend, "quadra")) {
+    return(.sdmTMB_quadra_fit(
+      formula = formula, data = data, mesh = mesh, family = family,
+      spatial = spatial, spatiotemporal = spatiotemporal,
+      spatial_model = spatial_model, time = time, weights = weights,
+      offset = offset, reml = reml, anisotropy = anisotropy,
+      share_range = share_range,
+      control = control, do_fit = do_fit, call = match.call()
+    ))
+  }
   nonlocal_data_arg <- nonlocal_data
   mesh_missing <- missing(mesh)
   spatial_model <- match.arg(tolower(spatial_model[1L]), c("spde", "sar", "car"))

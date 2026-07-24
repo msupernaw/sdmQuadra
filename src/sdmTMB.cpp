@@ -1,4 +1,3 @@
-#define TMB_LIB_INIT R_init_sdmTMB
 #define EIGEN_DONT_PARALLELIZE
 #include <TMB.hpp>
 #include "utils.h"
@@ -1872,4 +1871,92 @@ Type objective_function<Type>::operator()()
     REPORT(zeta_s_A);
   }
   return jnll;
+}
+
+// Register TMB's native routines together with the experimental Quadra bridge.
+// TMB's default registration table cannot see routines defined in another
+// translation unit, so sdmTMB owns the combined table explicitly.
+extern "C" SEXP sdmTMB_quadra_gaussian(SEXP beta, SEXP x, SEXP y,
+                                        SEXP offset);
+extern "C" SEXP sdmTMB_quadra_gaussian_random_intercept(
+    SEXP fixed, SEXP random, SEXP x, SEXP y, SEXP offset, SEXP group);
+extern "C" SEXP sdmTMB_quadra_gaussian_sparse_field(
+    SEXP fixed, SEXP random, SEXP x, SEXP y, SEXP offset, SEXP node, SEXP q_i,
+    SEXP q_j, SEXP q_x, SEXP logdet_q);
+extern "C" SEXP sdmTMB_quadra_gaussian_projected_field(
+    SEXP fixed, SEXP random, SEXP x, SEXP y, SEXP offset, SEXP a_i, SEXP a_j,
+    SEXP a_x, SEXP q_i, SEXP q_j, SEXP q_x, SEXP logdet_q);
+extern "C" SEXP sdmTMB_quadra_gaussian_spde_field(
+    SEXP fixed, SEXP random, SEXP x, SEXP y, SEXP offset, SEXP a_i, SEXP a_j,
+    SEXP a_x, SEXP m0_i, SEXP m0_j, SEXP m0_x, SEXP m1_i, SEXP m1_j,
+    SEXP m1_x, SEXP m2_i, SEXP m2_j, SEXP m2_x,
+    SEXP gradient_requested);
+extern "C" SEXP sdmTMB_quadra_poisson_spde_field(
+    SEXP fixed, SEXP random, SEXP x, SEXP y, SEXP offset, SEXP a_i, SEXP a_j,
+    SEXP a_x, SEXP m0_i, SEXP m0_j, SEXP m0_x, SEXP m1_i, SEXP m1_j,
+    SEXP m1_x, SEXP m2_i, SEXP m2_j, SEXP m2_x,
+    SEXP gradient_requested);
+extern "C" SEXP sdmTMB_quadra_poisson_state_create(
+    SEXP fixed, SEXP random, SEXP x, SEXP y, SEXP offset, SEXP weights,
+    SEXP a_i, SEXP a_j, SEXP a_x, SEXP m0_i, SEXP m0_j, SEXP m0_x,
+    SEXP m1_i, SEXP m1_j, SEXP m1_x, SEXP m2_i, SEXP m2_j, SEXP m2_x,
+    SEXP nb2, SEXP gaussian);
+extern "C" SEXP sdmTMB_quadra_poisson_state_evaluate(
+    SEXP pointer, SEXP fixed, SEXP gradient_requested);
+extern "C" SEXP sdmTMB_quadra_poisson_state_covariance(SEXP pointer,
+                                                        SEXP fixed);
+extern "C" SEXP sdmTMB_quadra_poisson_state_prediction_uncertainty(
+    SEXP pointer, SEXP x_theta, SEXP z_i, SEXP z_j, SEXP z_x,
+    SEXP n_random);
+extern "C" SEXP sdmTMB_quadra_poisson_st_iid_state_create(
+    SEXP fixed, SEXP random, SEXP x, SEXP y, SEXP offset, SEXP weights,
+    SEXP time, SEXP a_i, SEXP a_j, SEXP a_x, SEXP m0_i, SEXP m0_j,
+    SEXP m0_x, SEXP m1_i, SEXP m1_j, SEXP m1_x, SEXP m2_i, SEXP m2_j,
+    SEXP m2_x, SEXP temporal_model, SEXP separate_range, SEXP nb2,
+    SEXP gaussian);
+extern "C" SEXP sdmTMB_quadra_poisson_st_iid_state_evaluate(
+    SEXP pointer, SEXP fixed, SEXP gradient_requested);
+extern "C" SEXP sdmTMB_quadra_poisson_st_iid_state_covariance(SEXP pointer,
+                                                               SEXP fixed);
+extern "C" SEXP
+sdmTMB_quadra_poisson_st_iid_state_prediction_uncertainty(
+    SEXP pointer, SEXP x_theta, SEXP z_i, SEXP z_j, SEXP z_x,
+    SEXP n_random);
+
+extern "C" void R_init_sdmTMB(DllInfo *dll) {
+  static R_CallMethodDef call_entries[] = {
+      TMB_CALLDEFS,
+      {"sdmTMB_quadra_gaussian", (DL_FUNC)&sdmTMB_quadra_gaussian, 4},
+      {"sdmTMB_quadra_gaussian_random_intercept",
+       (DL_FUNC)&sdmTMB_quadra_gaussian_random_intercept, 6},
+      {"sdmTMB_quadra_gaussian_sparse_field",
+       (DL_FUNC)&sdmTMB_quadra_gaussian_sparse_field, 10},
+      {"sdmTMB_quadra_gaussian_projected_field",
+       (DL_FUNC)&sdmTMB_quadra_gaussian_projected_field, 12},
+      {"sdmTMB_quadra_gaussian_spde_field",
+       (DL_FUNC)&sdmTMB_quadra_gaussian_spde_field, 18},
+      {"sdmTMB_quadra_poisson_spde_field",
+       (DL_FUNC)&sdmTMB_quadra_poisson_spde_field, 18},
+      {"sdmTMB_quadra_poisson_state_create",
+       (DL_FUNC)&sdmTMB_quadra_poisson_state_create, 20},
+      {"sdmTMB_quadra_poisson_state_evaluate",
+       (DL_FUNC)&sdmTMB_quadra_poisson_state_evaluate, 3},
+      {"sdmTMB_quadra_poisson_state_covariance",
+       (DL_FUNC)&sdmTMB_quadra_poisson_state_covariance, 2},
+      {"sdmTMB_quadra_poisson_state_prediction_uncertainty",
+       (DL_FUNC)&sdmTMB_quadra_poisson_state_prediction_uncertainty, 6},
+      {"sdmTMB_quadra_poisson_st_iid_state_create",
+       (DL_FUNC)&sdmTMB_quadra_poisson_st_iid_state_create, 23},
+      {"sdmTMB_quadra_poisson_st_iid_state_evaluate",
+       (DL_FUNC)&sdmTMB_quadra_poisson_st_iid_state_evaluate, 3},
+      {"sdmTMB_quadra_poisson_st_iid_state_covariance",
+       (DL_FUNC)&sdmTMB_quadra_poisson_st_iid_state_covariance, 2},
+      {"sdmTMB_quadra_poisson_st_iid_state_prediction_uncertainty",
+       (DL_FUNC)&sdmTMB_quadra_poisson_st_iid_state_prediction_uncertainty,
+       6},
+      {NULL, NULL, 0}};
+
+  R_registerRoutines(dll, NULL, call_entries, NULL, NULL);
+  R_useDynamicSymbols(dll, (Rboolean)FALSE);
+  TMB_CCALLABLES("sdmTMB");
 }

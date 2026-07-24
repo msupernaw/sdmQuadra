@@ -34,7 +34,8 @@ sdmTMB(
   do_index = FALSE,
   predict_args = NULL,
   index_args = NULL,
-  experimental = NULL
+  experimental = NULL,
+  backend = c("tmb", "quadra")
 )
 }
 \arguments{
@@ -226,6 +227,12 @@ Most users can ignore this option.}
 
 \item{experimental}{A named list for esoteric or in-development options. Here
 be dragons.}
+
+\item{backend}{Computational backend. The default \code{"tmb"} retains the
+established implementation. Experimental \code{"quadra"} currently supports
+Gaussian identity-link and Poisson log-link isotropic SPDE models. Poisson
+models may also include IID, AR1, or random-walk spatiotemporal fields with a
+shared spatial range.}
 }
 \value{
 An object (list) of class \code{sdmTMB}. Useful elements include:

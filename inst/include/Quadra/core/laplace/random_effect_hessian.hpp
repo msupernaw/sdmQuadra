@@ -1,0 +1,306 @@
+#pragma once
+
+#include <set>
+#include <stdexcept>
+#include <vector>
+
+#include "../laplace.hpp"
+#include "../autodiff/laplace_graph_plan.hpp"
+#include "random_effect_objective.hpp"
+#include "sparse_factorization_cache.hpp"
+#include "sparse_huu_factorization.hpp"
+
+namespace quadra {
+
+struct RandomEffectHessianResult {
+  double objective_value_m = 0.0;
+  double gradient_norm_m = 0.0;
+
+  std::vector<double> fixed_m;
+  std::vector<double> random_m;
+  std::vector<double> full_m;
+  std::vector<double> gradient_random_m;
+
+  Eigen::SparseMatrix<double> hessian_random_m;
+
+  std::vector<ReportValue> reports_m;
+};
+
+inline std::vector<int>
+random_indices_as_ints(const ParameterPartition &partition) {
+  std::vector<int> out;
+  out.reserve(partition.random_indices_m.size());
+
+  for (size_t idx : partition.random_indices_m) {
+    out.push_back(static_cast<int>(idx));
+  }
+
+  return out;
+}
+
+template <class Model> class RandomEffectHessianWorkspace {
+public:
+  RandomEffectHessianWorkspace(Model &model, const std::vector<double> &fixed,
+      const std::vector<double> &random,
+                               const ParameterPartition &partition)
+      : model_(model), partition_(partition) {
+    had::g_ADGraph = &tape_.graph;
+    ModelReportContext ctx;
+    model_.initialize(ctx);
+    fixed_ad_ = to_ad(fixed);
+    random_ad_ = to_ad(random);
+    full_ad_ = merge_parameters(fixed_ad_, random_ad_, partition_);
+    objective_ = model_.template evaluate<AD>(full_ad_, ctx);
+    std::vector<had::VertexId> fixed_vertices, random_vertices;
+    for (const auto &parameter : fixed_ad_)
+      fixed_vertices.push_back(parameter.varId);
+    for (const auto &parameter : random_ad_)
+      random_vertices.push_back(parameter.varId);
+    graph_plan_.Build(tape_.graph, fixed_vertices, random_vertices,
+                      objective_.varId);
+    random_idx_ = random_indices_as_ints(partition_);
+  }
+
+  RandomEffectHessianResult Evaluate(const std::vector<double> &fixed,
+                                     const std::vector<double> &random,
+                                     double drop_tol = 0.0) {
+    if (fixed.size() != fixed_ad_.size() ||
+        random.size() != random_ad_.size())
+      throw std::invalid_argument(
+          "RandomEffectHessianWorkspace parameter length mismatch");
+    had::g_ADGraph = &tape_.graph;
+    for (size_t i = 0; i < fixed.size(); ++i)
+      set_value(fixed_ad_[i], fixed[i]);
+    for (size_t i = 0; i < random.size(); ++i)
+      set_value(random_ad_[i], random[i]);
+    tape_.forward();
+    PropagateRandomHessianRestricted(tape_.graph, graph_plan_);
+    Eigen::VectorXd g = extract_gradient(random_ad_);
+    if (pattern_.empty()) {
+      auto &cache = laplace_pattern_cache();
+      const std::size_t key =
+          laplace_pattern_cache_key(tape_.graph, full_ad_, random_idx_);
+      auto found = cache.find(key);
+      if (found != cache.end()) {
+        pattern_ = found->second;
+      } else {
+        pattern_ = discover_pattern_from_graph(full_ad_, random_idx_);
+        // Numeric sparsity discovery can miss structural entries at special
+        // parameter values (for example, AR1 cross-time blocks at rho = 0).
+        // Replay once at a small deterministic perturbation and retain the
+        // union. This stays model-independent and does not change the values
+        // returned for the caller's evaluation point.
+        for (size_t i = 0; i < fixed.size(); ++i)
+          set_value(fixed_ad_[i],
+                    fixed[i] + 0.01 * static_cast<double>(1 + i % 7));
+        for (size_t i = 0; i < random.size(); ++i)
+          set_value(random_ad_[i],
+                    random[i] + 0.001 * static_cast<double>(1 + i % 5));
+        tape_.forward();
+        PropagateRandomHessianRestricted(tape_.graph, graph_plan_);
+        const SparseHessianPattern probe =
+            discover_pattern_from_graph(
+                full_ad_, random_idx_, true, true, 1e-12, false);
+        std::set<std::pair<int, int>> union_pattern(
+            pattern_.begin(), pattern_.end());
+        union_pattern.insert(probe.begin(), probe.end());
+        pattern_.assign(union_pattern.begin(), union_pattern.end());
+        for (size_t i = 0; i < fixed.size(); ++i)
+          set_value(fixed_ad_[i], fixed[i]);
+        for (size_t i = 0; i < random.size(); ++i)
+          set_value(random_ad_[i], random[i]);
+        tape_.forward();
+        PropagateRandomHessianRestricted(tape_.graph, graph_plan_);
+        cache.emplace(key, pattern_);
+      }
+    }
+
+    std::vector<Eigen::Triplet<double>> triplets;
+    triplets.reserve(pattern_.size());
+    for (const auto &ij : pattern_) {
+      const double value =
+          get_hessian(full_ad_[random_idx_[static_cast<size_t>(ij.first)]],
+                      full_ad_[random_idx_[static_cast<size_t>(ij.second)]]);
+      if (std::abs(value) > drop_tol)
+        triplets.emplace_back(ij.first, ij.second, value);
+    }
+    Eigen::SparseMatrix<double> H(static_cast<int>(random.size()),
+                                  static_cast<int>(random.size()));
+    H.setFromTriplets(triplets.begin(), triplets.end());
+
+    ModelReportContext report_ctx;
+    model_.initialize(report_ctx);
+    (void)evaluate_fixed_random<Model, double>(
+        model_, fixed, random, partition_, report_ctx);
+
+    RandomEffectHessianResult result;
+    result.objective_value_m = value_of(objective_);
+    result.fixed_m = fixed;
+    result.random_m = random;
+    result.full_m = merge_parameters(fixed, random, partition_);
+    result.reports_m = report_ctx.reports().values();
+    result.hessian_random_m = std::move(H);
+    result.gradient_random_m.resize(static_cast<size_t>(g.size()));
+    for (int i = 0; i < g.size(); ++i)
+      result.gradient_random_m[static_cast<size_t>(i)] = g[i];
+    result.gradient_norm_m =
+        random_effect_gradient_norm(result.gradient_random_m);
+    return result;
+  }
+
+  Eigen::VectorXd solve_newton_system(
+      const Eigen::SparseMatrix<double> &hessian,
+      const Eigen::VectorXd &rhs) {
+    try {
+      if (!newton_factorization_.analyzed())
+        newton_factorization_.analyze_pattern(hessian);
+      newton_factorization_.factorize(hessian);
+    } catch (const std::exception &) {
+      // Structural zeros can change the numeric sparse representation at
+      // special parameter values. Recompute safely in that uncommon case.
+      newton_factorization_.compute(hessian);
+    }
+    return newton_factorization_.solve(rhs);
+  }
+
+  double factorize_terminal_hessian(
+      const Eigen::SparseMatrix<double> &hessian) {
+    try {
+      if (!newton_factorization_.analyzed())
+        newton_factorization_.analyze_pattern(hessian);
+      newton_factorization_.factorize(hessian);
+    } catch (const std::exception &) {
+      newton_factorization_.compute(hessian);
+    }
+    return newton_factorization_.logdet();
+  }
+
+  Eigen::VectorXd terminal_solve(const Eigen::VectorXd &rhs) const {
+    return newton_factorization_.solve(rhs);
+  }
+
+  Eigen::MatrixXd terminal_solve(const Eigen::MatrixXd &rhs) const {
+    return newton_factorization_.solve(rhs);
+  }
+
+  laplace::TakahashiSelectedInverse terminal_selected_inverse() const {
+    return laplace::TakahashiSelectedInverse(
+        newton_factorization_.matrixL(), newton_factorization_.vectorD(),
+        newton_factorization_.permutationP());
+  }
+
+  const SparseLDLTFactorizationCache &terminal_factorization() const {
+    return newton_factorization_;
+  }
+
+private:
+  Model &model_;
+  ParameterPartition partition_;
+  TapeContext tape_;
+  std::vector<AD> fixed_ad_, random_ad_, full_ad_;
+  AD objective_;
+  LaplaceGraphPlan graph_plan_;
+  std::vector<int> random_idx_;
+  SparseHessianPattern pattern_;
+  SparseLDLTFactorizationCache newton_factorization_;
+};
+
+// Evaluate f(theta, u), gradient wrt u, and sparse Hessian wrt u.
+//
+// This is the bridge between the newer model/partition layer and the older
+// sparse Laplace kernels in core/laplace.hpp. The active AD variables are the
+// random effects. Fixed effects are injected as AD constants so the AD graph
+// still represents the full model evaluation while gradients/Hessian are
+// extracted only for u.
+template <class Model>
+inline RandomEffectHessianResult
+evaluate_random_effect_hessian(Model &model, const std::vector<double> &fixed,
+                               const std::vector<double> &random,
+                               const ParameterPartition &partition,
+                               double drop_tol = 0.0) {
+  if (random.size() != partition.random_indices_m.size()) {
+    throw std::invalid_argument(
+        "evaluate_random_effect_hessian: random vector has incorrect length");
+  }
+
+  if (fixed.size() != partition.fixed_indices_m.size()) {
+    throw std::invalid_argument(
+        "evaluate_random_effect_hessian: fixed vector has incorrect length");
+  }
+
+  TapeContext tape;
+  ADScope scope(tape.graph);
+
+  ModelReportContext ctx;
+  model.initialize(ctx);
+
+  std::vector<AD> fixed_ad;
+  fixed_ad.reserve(fixed.size());
+
+  for (double theta_i : fixed) {
+    fixed_ad.push_back(AD(theta_i));
+  }
+
+  std::vector<AD> random_ad = to_ad(random);
+  std::vector<AD> full_ad = merge_parameters(fixed_ad, random_ad, partition);
+
+  AD objective = model.template evaluate<AD>(full_ad, ctx);
+
+  std::vector<had::VertexId> fixed_vertices;
+  std::vector<had::VertexId> random_vertices;
+  fixed_vertices.reserve(fixed_ad.size());
+  random_vertices.reserve(random_ad.size());
+  for (const auto &parameter : fixed_ad)
+    fixed_vertices.push_back(parameter.varId);
+  for (const auto &parameter : random_ad)
+    random_vertices.push_back(parameter.varId);
+  LaplaceGraphPlan graph_plan;
+  graph_plan.Build(tape.graph, fixed_vertices, random_vertices,
+                   objective.varId);
+  PropagateRandomHessianRestricted(tape.graph, graph_plan);
+
+  Eigen::VectorXd g = extract_gradient(random_ad);
+
+  const std::vector<int> random_idx = random_indices_as_ints(partition);
+
+  const auto &pattern = get_pattern(scope, full_ad, random_idx);
+
+  Eigen::SparseMatrix<double> H =
+      extract_sparse_hessian(scope, full_ad, random_idx, pattern, drop_tol);
+
+  RandomEffectHessianResult result;
+  result.objective_value_m = value_of(objective);
+  result.fixed_m = fixed;
+  result.random_m = random;
+  result.full_m = merge_parameters(fixed, random, partition);
+  result.reports_m = ctx.reports().values();
+  result.hessian_random_m = H;
+
+  result.gradient_random_m.resize(static_cast<size_t>(g.size()));
+
+  for (int i = 0; i < g.size(); ++i) {
+    result.gradient_random_m[static_cast<size_t>(i)] = g[i];
+  }
+
+  result.gradient_norm_m =
+      random_effect_gradient_norm(result.gradient_random_m);
+
+  return result;
+}
+
+template <class Model>
+inline RandomEffectHessianResult
+evaluate_random_effect_hessian(Model &model, const std::vector<double> &fixed,
+                               const std::vector<double> &random,
+                               const ParameterSet &parameters,
+                               double drop_tol = 0.0) {
+  return evaluate_random_effect_hessian(
+      model, fixed, random, partition_parameters(parameters), drop_tol);
+}
+
+inline Eigen::MatrixXd
+dense_random_hessian(const RandomEffectHessianResult &result) {
+  return Eigen::MatrixXd(result.hessian_random_m);
+}
+
+} // namespace quadra

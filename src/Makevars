@@ -1,1 +1,2 @@
-PKG_CPPFLAGS = -DTMBAD_FRAMEWORK
+CXX_STD = CXX17
+PKG_CPPFLAGS = -DTMBAD_FRAMEWORK -DR_NO_REMAP -I../inst/include/Quadra -I../inst/include/Quadra/external/eigen
