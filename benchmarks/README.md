@@ -158,23 +158,23 @@ The exact worker workload is retained in
 
 | Backend | Fit seconds | Prediction median seconds | Prediction minimum | Prediction maximum | Peak RSS (MiB) |
 |---|---:|---:|---:|---:|---:|
-| Quadra | 0.103 | 0.014 | 0.014 | 0.015 | 317.1 |
-| TMB | 0.159 | 1.374 | 1.367 | 1.385 | 951.1 |
+| Quadra | 0.056 | 0.005 | 0.005 | 0.006 | 304.9 |
+| TMB | 0.131 | 1.356 | 1.348 | 1.370 | 1,000.5 |
 
-For this workload, Quadra prediction was approximately 98 times faster and used
-approximately one-third of TMB's peak RSS.
+For this workload, Quadra prediction was approximately 270 times faster and
+used approximately 30% of TMB's peak RSS.
 
 ### Spatial + IID spatiotemporal model
 
 | Backend | Fit seconds | Prediction median seconds | Prediction minimum | Prediction maximum | Peak RSS (MiB) |
 |---|---:|---:|---:|---:|---:|
-| Quadra | 0.676 | 0.305 | 0.302 | 0.309 | 360.2 |
-| TMB | 0.322 | 4.447 | 4.328 | 4.727 | 1,160.2 |
+| Quadra | 0.371 | 0.202 | 0.200 | 0.203 | 352.0 |
+| TMB | 0.320 | 4.168 | 4.114 | 4.185 | 1,204.3 |
 
-TMB completed the spatiotemporal fit approximately 2.1 times faster in this
-run. Quadra's subsequent marginal prediction-uncertainty calculation was
-approximately 14.6 times faster and its full-process peak RSS was approximately
-31% of TMB's.
+TMB completed the spatiotemporal fit approximately 16% faster in this run.
+Quadra's subsequent marginal prediction-uncertainty calculation was
+approximately 21 times faster and its full-process peak RSS was approximately
+29% of TMB's.
 
 ### Scope
 
