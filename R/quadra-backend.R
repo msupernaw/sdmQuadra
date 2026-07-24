@@ -202,6 +202,10 @@
     "xf.tol", "step.min", "step.max", "sing.tol", "scale"
   )
   optimizer_control <- control[intersect(names(control), nlminb_names)]
+  quadra_optimizer <- match.arg(
+    tolower(control$quadra_optimizer %||% "nlminb"),
+    c("nlminb", "lbfgs")
+  )
   if (isTRUE(do_fit)) {
     lower <- rep(-Inf, length(quadra_object$par))
     upper <- rep(Inf, length(quadra_object$par))
@@ -219,11 +223,21 @@
         upper[rho_position] <- stats::qlogis((1 + 0.999) / 2)
       }
     }
-    model <- stats::nlminb(
-      quadra_object$par, quadra_object$fn, quadra_object$gr,
-      lower = lower, upper = upper,
-      control = optimizer_control
-    )
+    if (identical(quadra_optimizer, "lbfgs")) {
+      model <- quadra_object$lbfgs(
+        quadra_object$par,
+        max_iterations = as.integer(control$iter.max %||% 100L),
+        memory = as.integer(control$quadra_lbfgs_memory %||% 7L),
+        gradient_tolerance =
+          as.double(control$quadra_gradient_tolerance %||% 1e-4)
+      )
+    } else {
+      model <- stats::nlminb(
+        quadra_object$par, quadra_object$fn, quadra_object$gr,
+        lower = lower, upper = upper,
+        control = optimizer_control
+      )
+    }
     names(model$par) <- parameter_names
     report <- quadra_object$report(model$par)
     if (isTRUE(control$getsd)) {
@@ -284,6 +298,7 @@
       time_levels = if (st_supported) time_levels else NULL,
       share_range = share_range_value,
       backend = "quadra",
+      optimizer = quadra_optimizer,
       quadra_obj = quadra_object,
       tmb_obj = quadra_object,
       model = model,

@@ -237,3 +237,61 @@ The focused benchmark used 5,000 repeated Pacific cod prediction rows with
 
 The complete Quadra backend test suite passes after this change, including
 prediction standard-error parity fixtures against TMB.
+
+## 2026-07-24: Quadra native L-BFGS
+
+The benchmark harness now includes `quadra-lbfgs`, which runs Quadra's native
+limited-memory BFGS two-loop recursion and Armijo backtracking line search
+directly against the persistent profiled model state. This is distinct from the
+default Quadra configuration, which exposes the same native objective and exact
+gradient to R's `nlminb`.
+
+Each row ran in a fresh process and includes fitting, fixed and random-effect
+uncertainty, a 5,000-row prediction warm-up, and three measured marginal
+prediction calls. Peak RSS was sampled every 5 milliseconds.
+
+### Spatial model
+
+| Backend / optimizer | Fit seconds | Prediction median seconds | Peak RSS (MiB) |
+|---|---:|---:|---:|
+| Quadra + `nlminb` | 0.095 | 0.006 | 282.1 |
+| Quadra + native L-BFGS | 0.144 | 0.007 | 286.6 |
+| TMB + `nlminb` | 0.151 | 1.487 | 933.3 |
+
+The native L-BFGS fit converged in 30 iterations to objective
+2355.1547171330.
+
+### Spatial + IID spatiotemporal model
+
+| Backend / optimizer | Fit seconds | Prediction median seconds | Peak RSS (MiB) |
+|---|---:|---:|---:|
+| Quadra + `nlminb` | 0.603 | 0.218 | 327.9 |
+| Quadra + native L-BFGS | 0.798 | 0.240 | 334.4 |
+| TMB + `nlminb` | 0.366 | 4.479 | 1,139.5 |
+
+The native L-BFGS fit converged in 41 iterations to objective
+2347.2627939846.
+
+The native optimizer uses value-only profiled evaluations during backtracking
+and requests one exact Laplace gradient at each accepted point. Its
+steepest-descent initialization is normalized when no curvature history is
+available; the unscaled initial gradients had norms of approximately 247 and
+313 and previously caused a long sequence of rejected profiles. Together these
+changes reduced optimization-only time from approximately 1.3 to 0.11 seconds
+spatially and from 6.6 to 0.58 seconds spatiotemporally. In the complete
+fit-and-uncertainty workload above, native L-BFGS is close to `nlminb`
+spatially, while its additional outer iterations leave it approximately 32%
+slower on the IID spatiotemporal model.
+
+Reproduce the complete comparison with:
+
+```sh
+Rscript benchmarks/benchmark-suite.R 5000
+```
+
+The worker also accepts the native optimizer directly:
+
+```sh
+Rscript benchmarks/backend-worker.R quadra-lbfgs spatial 5000
+Rscript benchmarks/backend-worker.R quadra-lbfgs spatiotemporal 5000
+```

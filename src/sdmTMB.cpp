@@ -1905,6 +1905,9 @@ extern "C" SEXP sdmTMB_quadra_poisson_state_evaluate(
     SEXP pointer, SEXP fixed, SEXP gradient_requested);
 extern "C" SEXP sdmTMB_quadra_poisson_state_covariance(SEXP pointer,
                                                         SEXP fixed);
+extern "C" SEXP sdmTMB_quadra_poisson_state_lbfgs(
+    SEXP pointer, SEXP initial, SEXP max_iterations, SEXP memory,
+    SEXP gradient_tolerance);
 extern "C" SEXP sdmTMB_quadra_poisson_state_prediction_uncertainty(
     SEXP pointer, SEXP x_theta, SEXP z_i, SEXP z_j, SEXP z_x,
     SEXP n_random);
@@ -1918,6 +1921,9 @@ extern "C" SEXP sdmTMB_quadra_poisson_st_iid_state_evaluate(
     SEXP pointer, SEXP fixed, SEXP gradient_requested);
 extern "C" SEXP sdmTMB_quadra_poisson_st_iid_state_covariance(SEXP pointer,
                                                                SEXP fixed);
+extern "C" SEXP sdmTMB_quadra_poisson_st_iid_state_lbfgs(
+    SEXP pointer, SEXP initial, SEXP max_iterations, SEXP memory,
+    SEXP gradient_tolerance);
 extern "C" SEXP
 sdmTMB_quadra_poisson_st_iid_state_prediction_uncertainty(
     SEXP pointer, SEXP x_theta, SEXP z_i, SEXP z_j, SEXP z_x,
@@ -1943,6 +1949,8 @@ extern "C" void R_init_sdmTMB(DllInfo *dll) {
        (DL_FUNC)&sdmTMB_quadra_poisson_state_evaluate, 3},
       {"sdmTMB_quadra_poisson_state_covariance",
        (DL_FUNC)&sdmTMB_quadra_poisson_state_covariance, 2},
+      {"sdmTMB_quadra_poisson_state_lbfgs",
+       (DL_FUNC)&sdmTMB_quadra_poisson_state_lbfgs, 5},
       {"sdmTMB_quadra_poisson_state_prediction_uncertainty",
        (DL_FUNC)&sdmTMB_quadra_poisson_state_prediction_uncertainty, 6},
       {"sdmTMB_quadra_poisson_st_iid_state_create",
@@ -1951,6 +1959,8 @@ extern "C" void R_init_sdmTMB(DllInfo *dll) {
        (DL_FUNC)&sdmTMB_quadra_poisson_st_iid_state_evaluate, 3},
       {"sdmTMB_quadra_poisson_st_iid_state_covariance",
        (DL_FUNC)&sdmTMB_quadra_poisson_st_iid_state_covariance, 2},
+      {"sdmTMB_quadra_poisson_st_iid_state_lbfgs",
+       (DL_FUNC)&sdmTMB_quadra_poisson_st_iid_state_lbfgs, 5},
       {"sdmTMB_quadra_poisson_st_iid_state_prediction_uncertainty",
        (DL_FUNC)&sdmTMB_quadra_poisson_st_iid_state_prediction_uncertainty,
        6},

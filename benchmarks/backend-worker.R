@@ -1,4 +1,12 @@
-args <- commandArgs(trailingOnly = TRUE)
+environment_args <- Sys.getenv(c(
+  "SDMTMB_BENCHMARK_BACKEND", "SDMTMB_BENCHMARK_MODEL",
+  "SDMTMB_BENCHMARK_PREDICTIONS"
+))
+args <- if (all(nzchar(environment_args))) {
+  unname(environment_args)
+} else {
+  commandArgs(trailingOnly = TRUE)
+}
 if (length(args) != 3L) {
   stop("usage: backend-worker.R BACKEND MODEL N_PREDICTIONS")
 }
@@ -6,7 +14,7 @@ if (length(args) != 3L) {
 backend <- args[[1L]]
 model <- args[[2L]]
 n_predictions <- as.integer(args[[3L]])
-if (!backend %in% c("quadra", "tmb") ||
+if (!backend %in% c("quadra", "quadra-lbfgs", "tmb") ||
     !model %in% c("spatial", "spatiotemporal") ||
     is.na(n_predictions) || n_predictions < 1L) {
   stop("invalid benchmark arguments")
@@ -16,14 +24,19 @@ library(sdmTMB)
 
 control <- sdmTMBcontrol(
   iter.max = 100, eval.max = 200, getsd = TRUE,
-  newton_loops = 0, multiphase = FALSE
+  newton_loops = 0, multiphase = FALSE,
+  quadra_optimizer = if (identical(backend, "quadra-lbfgs")) {
+    "lbfgs"
+  } else {
+    "nlminb"
+  }
 )
 arguments <- list(
   formula = log(density + 0.1) ~ depth_scaled,
   data = pcod_2011,
   mesh = pcod_mesh_2011,
   family = gaussian(),
-  backend = backend,
+  backend = if (identical(backend, "quadra-lbfgs")) "quadra" else backend,
   control = control
 )
 if (identical(model, "spatiotemporal")) {
@@ -55,9 +68,17 @@ stopifnot(
 
 cat(
   sprintf("backend=%s\n", backend),
+  sprintf("optimizer=%s\n", if (identical(backend, "quadra-lbfgs")) {
+    "quadra-lbfgs"
+  } else {
+    "nlminb"
+  }),
   sprintf("model=%s\n", model),
   sprintf("predictions=%d\n", n_predictions),
   sprintf("fit_seconds=%.6f\n", fit_time),
+  sprintf("objective=%.10f\n", fit$model$objective),
+  sprintf("convergence=%d\n", fit$model$convergence),
+  sprintf("iterations=%d\n", fit$model$iterations),
   sprintf("prediction_median_seconds=%.6f\n", median(prediction_times)),
   sprintf("prediction_minimum_seconds=%.6f\n", min(prediction_times)),
   sprintf("prediction_maximum_seconds=%.6f\n", max(prediction_times)),

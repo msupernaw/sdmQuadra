@@ -927,3 +927,33 @@ test_that("Quadra supports weighted Gaussian spatiotemporal models", {
     expect_equal(report$mu_i, report$eta_i)
   }
 })
+
+test_that("Quadra native L-BFGS reaches the nlminb spatial optimum", {
+  base_control <- list(
+    getsd = FALSE, newton_loops = 0, multiphase = FALSE,
+    iter.max = 100
+  )
+  fit_nlminb <- sdmTMB(
+    log(density + 0.1) ~ depth_scaled,
+    data = pcod_2011, mesh = pcod_mesh_2011, family = gaussian(),
+    backend = "quadra",
+    control = do.call(sdmTMBcontrol, c(
+      base_control, list(quadra_optimizer = "nlminb")
+    ))
+  )
+  fit_lbfgs <- sdmTMB(
+    log(density + 0.1) ~ depth_scaled,
+    data = pcod_2011, mesh = pcod_mesh_2011, family = gaussian(),
+    backend = "quadra",
+    control = do.call(sdmTMBcontrol, c(
+      base_control, list(quadra_optimizer = "lbfgs")
+    ))
+  )
+  expect_identical(fit_lbfgs$optimizer, "lbfgs")
+  expect_identical(fit_lbfgs$model$convergence, 0L)
+  expect_equal(
+    fit_lbfgs$model$objective, fit_nlminb$model$objective,
+    tolerance = 1e-7
+  )
+  expect_lt(fit_lbfgs$model$gradient_norm, 1e-4)
+})

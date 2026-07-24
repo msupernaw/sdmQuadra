@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <cmath>
+#include <deque>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -15,6 +17,7 @@
 #include "core/inference/fixed_effect_covariance.hpp"
 #include "core/laplace/laplace_fixed_gradient.hpp"
 #include "core/laplace/laplace_implicit_workspace.hpp"
+#include "core/laplace/laplace_lbfgs_optimizer.hpp"
 #include "core/laplace/sparse_huu_factorization.hpp"
 #include "core/uncertainty/linear_predictor_marginal.hpp"
 #include "core/uncertainty/random_effect_marginal.hpp"
@@ -685,6 +688,131 @@ struct PersistentPoissonResult {
   quadra::LaplaceObjectiveResult objective;
   std::vector<double> gradient;
 };
+
+struct PersistentLBFGSResult {
+  std::vector<double> par;
+  std::vector<double> gradient;
+  double objective = NA_REAL;
+  double gradient_norm = NA_REAL;
+  int iterations = 0;
+  int evaluations = 0;
+  bool converged = false;
+  std::string message;
+};
+
+template <class State>
+PersistentLBFGSResult optimize_persistent_state_lbfgs(
+    State &state, const std::vector<double> &initial, int max_iterations,
+    int memory, double gradient_tolerance) {
+  PersistentLBFGSResult out;
+  std::vector<double> theta = initial;
+  PersistentPoissonResult current = state.Evaluate(theta, true);
+  ++out.evaluations;
+  if (!current.objective.converged_m || !current.objective.logdet_ok_m ||
+      !std::isfinite(current.objective.laplace_objective_m) ||
+      !quadra::lbfgs_all_finite(current.gradient)) {
+    out.par = theta;
+    out.message = "Initial Quadra L-BFGS evaluation failed.";
+    return out;
+  }
+
+  std::deque<std::vector<double>> s_history;
+  std::deque<std::vector<double>> y_history;
+  double step_norm = std::numeric_limits<double>::infinity();
+  for (int iteration = 0; iteration < max_iterations; ++iteration) {
+    const double gradient_norm = quadra::lbfgs_norm(current.gradient);
+    if (gradient_norm <= gradient_tolerance) {
+      out.converged = true;
+      out.message = "Converged: gradient norm below tolerance.";
+      break;
+    }
+
+    std::vector<double> direction = quadra::lbfgs_two_loop_direction(
+        current.gradient, s_history, y_history);
+    if (s_history.empty()) {
+      const double scale =
+          std::max(1.0, quadra::lbfgs_norm(current.gradient));
+      for (double &value : direction) value /= scale;
+    }
+    double directional_derivative =
+        quadra::lbfgs_dot(current.gradient, direction);
+    if (!(directional_derivative < 0.0) ||
+        !std::isfinite(directional_derivative)) {
+      s_history.clear();
+      y_history.clear();
+      direction = current.gradient;
+      for (double &value : direction) value = -value;
+      const double scale =
+          std::max(1.0, quadra::lbfgs_norm(current.gradient));
+      for (double &value : direction) value /= scale;
+      directional_derivative =
+          quadra::lbfgs_dot(current.gradient, direction);
+    }
+
+    double step = 1.0;
+    bool accepted = false;
+    std::vector<double> candidate_theta;
+    PersistentPoissonResult candidate;
+    while (step >= 1e-10) {
+      candidate_theta = quadra::lbfgs_add_scaled(theta, direction, step);
+      candidate = state.Evaluate(candidate_theta, false);
+      ++out.evaluations;
+      if (candidate.objective.converged_m &&
+          candidate.objective.logdet_ok_m &&
+          std::isfinite(candidate.objective.laplace_objective_m) &&
+          candidate.objective.laplace_objective_m <=
+              current.objective.laplace_objective_m +
+                  1e-4 * step * directional_derivative) {
+        accepted = true;
+        break;
+      }
+      step *= 0.5;
+    }
+    if (!accepted) {
+      out.message = "Stopped: Quadra L-BFGS line search failed.";
+      break;
+    }
+    // The accepted profiled center is cached by the persistent state, so this
+    // adds the exact Laplace gradient without repeating random-effect Newton
+    // optimization or terminal Hessian factorization.
+    candidate = state.Evaluate(candidate_theta, true);
+    ++out.evaluations;
+    if (!quadra::lbfgs_all_finite(candidate.gradient)) {
+      out.message = "Stopped: accepted Quadra L-BFGS gradient failed.";
+      break;
+    }
+
+    std::vector<double> s =
+        quadra::lbfgs_subtract(candidate_theta, theta);
+    std::vector<double> y =
+        quadra::lbfgs_subtract(candidate.gradient, current.gradient);
+    const double curvature = quadra::lbfgs_dot(s, y);
+    if (curvature > 1e-14 && std::isfinite(curvature)) {
+      s_history.push_back(s);
+      y_history.push_back(y);
+      while (static_cast<int>(s_history.size()) > memory) {
+        s_history.pop_front();
+        y_history.pop_front();
+      }
+    }
+    step_norm = quadra::lbfgs_norm(s);
+    theta = std::move(candidate_theta);
+    current = std::move(candidate);
+    out.iterations = iteration + 1;
+    if (step_norm <= 1e-10) {
+      out.converged = true;
+      out.message = "Converged: step norm below tolerance.";
+      break;
+    }
+  }
+  if (!out.converged && out.message.empty())
+    out.message = "Stopped: maximum Quadra L-BFGS iterations reached.";
+  out.par = theta;
+  out.gradient = current.gradient;
+  out.objective = current.objective.laplace_objective_m;
+  out.gradient_norm = quadra::lbfgs_norm(current.gradient);
+  return out;
+}
 
 struct BridgeDerivedInference {
   std::vector<std::string> names;
@@ -2023,6 +2151,51 @@ SEXP state_prediction_inference(State *state, SEXP x_theta, SEXP z_i,
   return prediction_inference_to_sexp(state->PredictionInference(X, Z));
 }
 
+template <class State>
+SEXP state_lbfgs(State *state, SEXP initial, SEXP max_iterations,
+                 SEXP memory, SEXP gradient_tolerance) {
+  if (state == nullptr || TYPEOF(initial) != REALSXP ||
+      TYPEOF(max_iterations) != INTSXP || Rf_xlength(max_iterations) != 1 ||
+      TYPEOF(memory) != INTSXP || Rf_xlength(memory) != 1 ||
+      TYPEOF(gradient_tolerance) != REALSXP ||
+      Rf_xlength(gradient_tolerance) != 1)
+    throw std::invalid_argument("invalid Quadra L-BFGS inputs");
+  const int maxit = INTEGER(max_iterations)[0];
+  const int history = INTEGER(memory)[0];
+  const double tolerance = REAL(gradient_tolerance)[0];
+  if (maxit < 1 || history < 1 || !std::isfinite(tolerance) ||
+      tolerance <= 0.0)
+    throw std::invalid_argument("invalid Quadra L-BFGS controls");
+  std::vector<double> values(REAL(initial),
+                             REAL(initial) + Rf_xlength(initial));
+  const PersistentLBFGSResult fit = optimize_persistent_state_lbfgs(
+      *state, values, maxit, history, tolerance);
+
+  SEXP result = PROTECT(Rf_allocVector(VECSXP, 8));
+  SEXP names = PROTECT(Rf_allocVector(STRSXP, 8));
+  SEXP par = PROTECT(Rf_allocVector(REALSXP, fit.par.size()));
+  SEXP gradient = PROTECT(Rf_allocVector(REALSXP, fit.gradient.size()));
+  for (size_t j = 0; j < fit.par.size(); ++j) REAL(par)[j] = fit.par[j];
+  for (size_t j = 0; j < fit.gradient.size(); ++j)
+    REAL(gradient)[j] = fit.gradient[j];
+  SET_VECTOR_ELT(result, 0, par);
+  SET_VECTOR_ELT(result, 1, Rf_ScalarReal(fit.objective));
+  SET_VECTOR_ELT(result, 2, gradient);
+  SET_VECTOR_ELT(result, 3, Rf_ScalarReal(fit.gradient_norm));
+  SET_VECTOR_ELT(result, 4, Rf_ScalarInteger(fit.iterations));
+  SET_VECTOR_ELT(result, 5, Rf_ScalarInteger(fit.evaluations));
+  SET_VECTOR_ELT(result, 6, Rf_ScalarInteger(fit.converged ? 0 : 1));
+  SET_VECTOR_ELT(result, 7, Rf_mkString(fit.message.c_str()));
+  const char *labels[] = {"par",       "objective",  "gradient",
+                          "gradient_norm", "iterations", "evaluations",
+                          "convergence", "message"};
+  for (int j = 0; j < 8; ++j)
+    SET_STRING_ELT(names, j, Rf_mkChar(labels[j]));
+  Rf_setAttrib(result, R_NamesSymbol, names);
+  UNPROTECT(4);
+  return result;
+}
+
 SEXP fixed_covariance_to_sexp(
     const quadra::FixedEffectCovarianceResult &value,
     const BridgeDerivedInference &derived,
@@ -2932,6 +3105,20 @@ extern "C" SEXP sdmTMB_quadra_poisson_state_covariance(
   return R_NilValue;
 }
 
+extern "C" SEXP sdmTMB_quadra_poisson_state_lbfgs(
+    SEXP pointer, SEXP initial, SEXP max_iterations, SEXP memory,
+    SEXP gradient_tolerance) {
+  try {
+    auto *state = static_cast<PersistentPoissonSpdeState *>(
+        R_ExternalPtrAddr(pointer));
+    return state_lbfgs(state, initial, max_iterations, memory,
+                       gradient_tolerance);
+  } catch (const std::exception &e) {
+    Rf_error("Quadra spatial L-BFGS failed: %s", e.what());
+  }
+  return R_NilValue;
+}
+
 extern "C" SEXP sdmTMB_quadra_poisson_state_prediction_uncertainty(
     SEXP pointer, SEXP x_theta, SEXP z_i, SEXP z_j, SEXP z_x,
     SEXP n_random) {
@@ -3140,6 +3327,20 @@ extern "C" SEXP sdmTMB_quadra_poisson_st_iid_state_covariance(
     return fixed_covariance_to_sexp(covariance, derived, random_effects);
   } catch (const std::exception &e) {
     Rf_error("Quadra spatiotemporal covariance failed: %s", e.what());
+  }
+  return R_NilValue;
+}
+
+extern "C" SEXP sdmTMB_quadra_poisson_st_iid_state_lbfgs(
+    SEXP pointer, SEXP initial, SEXP max_iterations, SEXP memory,
+    SEXP gradient_tolerance) {
+  try {
+    auto *state = static_cast<PersistentPoissonSpatiotemporalIidState *>(
+        R_ExternalPtrAddr(pointer));
+    return state_lbfgs(state, initial, max_iterations, memory,
+                       gradient_tolerance);
+  } catch (const std::exception &e) {
+    Rf_error("Quadra spatiotemporal L-BFGS failed: %s", e.what());
   }
   return R_NilValue;
 }

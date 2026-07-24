@@ -85,6 +85,20 @@
     par = start,
     fn = function(par = state$last.par) evaluate(par, FALSE)$value,
     gr = function(par = state$last.par) evaluate(par, TRUE)$gradient,
+    lbfgs = function(
+        par = state$last.par, max_iterations = 100L, memory = 7L,
+        gradient_tolerance = 1e-6
+    ) {
+      result <- .Call(
+        "sdmTMB_quadra_poisson_state_lbfgs",
+        state$native, as.double(par), as.integer(max_iterations),
+        as.integer(memory), as.double(gradient_tolerance),
+        PACKAGE = "sdmTMB"
+      )
+      names(result$par) <- names(par)
+      evaluate(result$par, TRUE)
+      result
+    },
     covariance = function(par = state$last.par) {
       .Call(
         "sdmTMB_quadra_poisson_state_covariance",
@@ -234,6 +248,20 @@
     par = start,
     fn = function(par = state$last.par) evaluate(par, FALSE)$value,
     gr = function(par = state$last.par) evaluate(par, TRUE)$gradient,
+    lbfgs = function(
+        par = state$last.par, max_iterations = 100L, memory = 7L,
+        gradient_tolerance = 1e-6
+    ) {
+      result <- .Call(
+        "sdmTMB_quadra_poisson_st_iid_state_lbfgs",
+        state$native, as.double(par), as.integer(max_iterations),
+        as.integer(memory), as.double(gradient_tolerance),
+        PACKAGE = "sdmTMB"
+      )
+      names(result$par) <- names(par)
+      evaluate(result$par, TRUE)
+      result
+    },
     covariance = function(par = state$last.par) {
       .Call(
         "sdmTMB_quadra_poisson_st_iid_state_covariance",
