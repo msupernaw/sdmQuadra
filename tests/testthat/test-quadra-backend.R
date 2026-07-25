@@ -710,6 +710,56 @@ test_that("sdmTMB exposes the experimental Quadra backend", {
   )
 })
 
+test_that("Quadra prediction columns and components match TMB", {
+  control <- sdmTMBcontrol(
+    iter.max = 100, eval.max = 200, getsd = FALSE,
+    newton_loops = 0, multiphase = FALSE
+  )
+  newdata <- pcod_2011[1:10, ]
+  for (model in c("spatial", "spatiotemporal")) {
+    arguments <- list(
+      formula = log(density + 0.1) ~ depth_scaled,
+      data = pcod_2011,
+      mesh = pcod_mesh_2011,
+      family = gaussian(),
+      control = control
+    )
+    if (identical(model, "spatiotemporal")) {
+      arguments$time <- "year"
+      arguments$spatiotemporal <- "iid"
+    }
+    quadra_fit <- do.call(sdmTMB, c(arguments, list(backend = "quadra")))
+    tmb_fit <- do.call(sdmTMB, c(arguments, list(backend = "tmb")))
+    quadra_prediction <- predict(quadra_fit, newdata = newdata)
+    tmb_prediction <- predict(tmb_fit, newdata = newdata)
+
+    expect_identical(class(quadra_prediction), class(newdata))
+    component_columns <- c("est", "est_non_rf", "est_rf", "omega_s")
+    if (identical(model, "spatiotemporal")) {
+      component_columns <- c(component_columns, "epsilon_st")
+      expect_equal(
+        quadra_prediction$est_rf,
+        quadra_prediction$omega_s + quadra_prediction$epsilon_st,
+        tolerance = 1e-12
+      )
+    } else {
+      expect_false("epsilon_st" %in% names(quadra_prediction))
+    }
+    expect_true(all(component_columns %in% names(quadra_prediction)))
+    expect_equal(
+      quadra_prediction$est,
+      quadra_prediction$est_non_rf + quadra_prediction$est_rf,
+      tolerance = 1e-12
+    )
+    for (column in component_columns) {
+      expect_equal(
+        quadra_prediction[[column]], tmb_prediction[[column]],
+        tolerance = 2e-4
+      )
+    }
+  }
+})
+
 test_that("Quadra computes spatiotemporal newdata prediction uncertainty", {
   fit <- sdmTMB(
     log(density + 0.1) ~ depth_scaled,

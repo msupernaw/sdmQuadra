@@ -426,10 +426,20 @@ predict.sdmTMB_quadra <- function(
     )
   }
   if (is.null(newdata)) {
-    estimate <- object$report$eta_i
     prediction_X <- object$X
     prediction_A <- object$quadra_obj$A
     prediction_time_index <- object$quadra_obj$time_index
+    fixed_estimate <- as.vector(
+      prediction_X %*% coef.sdmTMB_quadra(object) + object$offset
+    )
+    spatial_estimate <- object$report$projected_field
+    spatiotemporal_estimate <- if (
+      object$spatiotemporal %in% c("iid", "ar1", "rw")
+    ) {
+      object$report$projected_spatiotemporal
+    } else {
+      numeric(length(fixed_estimate))
+    }
   } else {
     new_frame <- stats::model.frame(
       stats::delete.response(object$terms), newdata,
@@ -450,10 +460,13 @@ predict.sdmTMB_quadra <- function(
     prediction_X <- new_X
     prediction_A <- new_A
     prediction_time_index <- NULL
-    estimate <- as.vector(
-      new_X %*% coef.sdmTMB_quadra(object) +
-        new_A %*% object$report$field
+    formula_offset <- stats::model.offset(new_frame)
+    if (is.null(formula_offset)) formula_offset <- numeric(nrow(new_X))
+    fixed_estimate <- as.vector(
+      new_X %*% coef.sdmTMB_quadra(object) + formula_offset
     )
+    spatial_estimate <- as.vector(new_A %*% object$report$field)
+    spatiotemporal_estimate <- numeric(nrow(new_X))
     if (object$spatiotemporal %in% c("iid", "ar1", "rw")) {
       if (!object$time %in% names(newdata)) {
         stop("newdata must contain the fitted time column", call. = FALSE)
@@ -463,7 +476,7 @@ predict.sdmTMB_quadra <- function(
         stop("newdata contains an unseen time value", call. = FALSE)
       }
       prediction_time_index <- time_index - 1L
-      estimate <- estimate + vapply(seq_len(nrow(newdata)), function(i) {
+      spatiotemporal_estimate <- vapply(seq_len(nrow(newdata)), function(i) {
         as.numeric(
           new_A[i, , drop = FALSE] %*%
             object$report$spatiotemporal_field[, time_index[i]]
@@ -471,6 +484,8 @@ predict.sdmTMB_quadra <- function(
       }, numeric(1))
     }
   }
+  random_estimate <- spatial_estimate + spatiotemporal_estimate
+  estimate <- fixed_estimate + random_estimate
   link_estimate <- estimate
   uncertainty <- NULL
   if (isTRUE(se_fit)) {
@@ -500,7 +515,14 @@ predict.sdmTMB_quadra <- function(
     }
   }
   if (identical(type, "response")) estimate <- object$family$linkinv(estimate)
-  out <- data.frame(est = estimate)
+  out <- if (is.null(newdata)) object$data else newdata
+  out$est <- estimate
+  out$est_non_rf <- fixed_estimate
+  out$est_rf <- random_estimate
+  out$omega_s <- spatial_estimate
+  if (object$spatiotemporal %in% c("iid", "ar1", "rw")) {
+    out$epsilon_st <- spatiotemporal_estimate
+  }
   if (!is.null(uncertainty)) {
     link_se <- uncertainty$std_error
     critical_value <- stats::qnorm((1 + level) / 2)

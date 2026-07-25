@@ -15,8 +15,8 @@ backend <- args[[1L]]
 model <- args[[2L]]
 n_predictions <- as.integer(args[[3L]])
 if (!backend %in% c("quadra", "quadra-lbfgs", "tmb") ||
-    !model %in% c("spatial", "spatiotemporal") ||
-    is.na(n_predictions) || n_predictions < 1L) {
+  !model %in% c("spatial", "spatiotemporal") ||
+  is.na(n_predictions) || n_predictions < 1L) {
   stop("invalid benchmark arguments")
 }
 
@@ -25,7 +25,7 @@ installed_entry_point <- tryCatch(
   error = function(...) NULL
 )
 if (is.null(installed_entry_point) ||
-    !"backend" %in% names(formals(installed_entry_point))) {
+  !"backend" %in% names(formals(installed_entry_point))) {
   if (!file.exists("DESCRIPTION") || !dir.exists("R")) {
     stop(
       paste(
@@ -83,11 +83,13 @@ newdata <- pcod_2011[
   drop = FALSE
 ]
 prediction <- predict(
-  fit, newdata = newdata, se_fit = TRUE, level = 0.95
+  fit,
+  newdata = newdata, se_fit = TRUE, level = 0.95
 )
 prediction_times <- replicate(3, system.time({
   prediction <- predict(
-    fit, newdata = newdata, se_fit = TRUE, level = 0.95
+    fit,
+    newdata = newdata, se_fit = TRUE, level = 0.95
   )
 })[["elapsed"]])
 stopifnot(
