@@ -498,3 +498,7 @@ The worker also accepts the native optimizer directly:
 Rscript benchmarks/backend-worker.R quadra-lbfgs spatial 5000
 Rscript benchmarks/backend-worker.R quadra-lbfgs spatiotemporal 5000
 ```
+
+When the installed `sdmTMB` predates the Quadra backend, the worker
+automatically loads the current checkout with `pkgload`. If `pkgload` is not
+available, install the checkout first with `R CMD INSTALL .`.

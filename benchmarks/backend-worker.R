@@ -20,7 +20,36 @@ if (!backend %in% c("quadra", "quadra-lbfgs", "tmb") ||
   stop("invalid benchmark arguments")
 }
 
-library(sdmTMB)
+installed_entry_point <- tryCatch(
+  getExportedValue("sdmTMB", "sdmTMB"),
+  error = function(...) NULL
+)
+if (is.null(installed_entry_point) ||
+    !"backend" %in% names(formals(installed_entry_point))) {
+  if (!file.exists("DESCRIPTION") || !dir.exists("R")) {
+    stop(
+      paste(
+        "the installed sdmTMB predates the Quadra backend and the worker is",
+        "not running from an sdmTMB source checkout"
+      )
+    )
+  }
+  if (!requireNamespace("pkgload", quietly = TRUE)) {
+    stop(
+      paste(
+        "the installed sdmTMB predates the Quadra backend;",
+        "run `R CMD INSTALL .` or install the pkgload package"
+      )
+    )
+  }
+  pkgload::load_all(".", export_all = FALSE, helpers = FALSE, quiet = TRUE)
+} else {
+  library(sdmTMB)
+}
+
+if (!"backend" %in% names(formals(sdmTMB))) {
+  stop("the loaded sdmTMB does not provide the Quadra backend")
+}
 
 control <- sdmTMBcontrol(
   iter.max = 100, eval.max = 200, getsd = TRUE,
