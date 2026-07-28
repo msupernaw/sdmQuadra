@@ -1119,14 +1119,14 @@ Eigen::SparseMatrix<double> random_hessian_directional_exact(
     const double d = (static_cast<Eigen::Index>(k) == theta_i) ? 1.0 : 0.0;
 
     p_full[fixed_idx[k]].dot = d;
-    graph.vertices[p_full[fixed_idx[k]].varId].dot = d;
+    had::VertexDot(graph, p_full[fixed_idx[k]].varId) = d;
   }
 
   for (size_t r = 0; r < random_idx.size(); ++r) {
     const double d = du[static_cast<Eigen::Index>(r)];
 
     p_full[random_idx[r]].dot = d;
-    graph.vertices[p_full[random_idx[r]].varId].dot = d;
+    had::VertexDot(graph, p_full[random_idx[r]].varId) = d;
   }
 
   AD nll = model(p_full);
@@ -1199,13 +1199,15 @@ std::vector<Eigen::SparseMatrix<double>> random_hessian_directional_exact_all(
     for (size_t k = 0; k < fixed_idx.size(); ++k) {
       const double d = (static_cast<Eigen::Index>(k) == theta_i) ? 1.0 : 0.0;
       p_full[static_cast<size_t>(fixed_idx[k])].dot = d;
-      graph.vertices[p_full[static_cast<size_t>(fixed_idx[k])].varId].dot = d;
+      had::VertexDot(
+          graph, p_full[static_cast<size_t>(fixed_idx[k])].varId) = d;
     }
 
     for (size_t r = 0; r < random_idx.size(); ++r) {
       const double d = du_dtheta(static_cast<Eigen::Index>(r), theta_i);
       p_full[static_cast<size_t>(random_idx[r])].dot = d;
-      graph.vertices[p_full[static_cast<size_t>(random_idx[r])].varId].dot = d;
+      had::VertexDot(
+          graph, p_full[static_cast<size_t>(random_idx[r])].varId) = d;
     }
 
     laplace::reset_had_quadra_directional_reverse_state(graph);

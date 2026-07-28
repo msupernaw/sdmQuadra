@@ -77,13 +77,10 @@ public:
     std::fill(graph_.edge2DwBatch.begin(), graph_.edge2DwBatch.end(),
               had::Real(0.0));
 
-    for (auto &vertex : graph_.vertices) {
+    for (auto &vertex : graph_.vertices)
       vertex.w = had::Real(0.0);
-      vertex.wDot = had::Real(0.0);
-      vertex.soWDot = had::Real(0.0);
-      vertex.dot = had::Real(0.0);
-
-    }
+    for (auto &directional : graph_.scalarDirectional)
+      directional = had::ADScalarDirectionalVertex{};
 
     if (graph_.soEdges.size() < graph_.vertices.size()) {
       graph_.soEdges.resize(graph_.vertices.size());

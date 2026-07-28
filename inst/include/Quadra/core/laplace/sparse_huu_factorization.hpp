@@ -178,6 +178,18 @@ public:
     return out;
   }
 
+  Eigen::MatrixXd solve(const Eigen::MatrixXd &rhs) const {
+    if (rhs.rows() != n_) {
+      throw std::invalid_argument(
+          "SparseHuuFactorization::solve: rhs has wrong row count.");
+    }
+    Eigen::MatrixXd out = factor_.solve(rhs);
+    if (factor_.info() != Eigen::Success) {
+      throw std::runtime_error("SparseHuuFactorization::solve failed.");
+    }
+    return out;
+  }
+
   Eigen::MatrixXd solve_columns(const std::vector<int> &columns) const {
     Eigen::MatrixXd out(n_, static_cast<int>(columns.size()));
 

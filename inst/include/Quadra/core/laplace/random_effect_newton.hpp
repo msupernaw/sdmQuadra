@@ -276,6 +276,34 @@ inline RandomEffectNewtonResult optimize_random_effects_newton(
       alpha *= 0.5;
     }
 
+    // A damped Newton direction can cease to be useful far from the
+    // conditional mode, especially when observation likelihoods add strong
+    // curvature. Fall back to a normalized steepest-descent direction before
+    // declaring the inner solve failed. This retains an Armijo decrease and
+    // lets subsequent iterations return to Newton steps.
+    if (!accepted && !options.quadratic_objective_m) {
+      Eigen::VectorXd descent = -g;
+      const double descent_norm = descent.norm();
+      if (std::isfinite(descent_norm) && descent_norm > 0.0) {
+        descent /= std::max(1.0, descent_norm);
+        alpha = options.initial_step_scale_m;
+        while (alpha >= options.min_step_scale_m) {
+          candidate_u = add_scaled_step(u, descent, alpha);
+          candidate_eval = hessian_workspace.Evaluate(
+              fixed, candidate_u, options.hessian_drop_tol_m);
+          const double armijo_rhs =
+              eval.objective_value_m +
+              options.sufficient_decrease_m * alpha * g.dot(descent);
+          if (candidate_eval.objective_value_m <= armijo_rhs) {
+            step = descent;
+            accepted = true;
+            break;
+          }
+          alpha *= 0.5;
+        }
+      }
+    }
+
     if (!accepted) {
       result.converged_m = false;
       result.message_m = "Failed: backtracking line search failed.";

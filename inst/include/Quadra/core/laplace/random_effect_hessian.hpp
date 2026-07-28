@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -26,6 +27,14 @@ struct RandomEffectHessianResult {
   std::vector<ReportValue> reports_m;
 };
 
+struct FixedGradientMixedHessianResult {
+  Eigen::VectorXd fixed_gradient_m;
+  Eigen::MatrixXd mixed_hessian_m;
+  double replay_ms = 0.0;
+  double propagate_ms = 0.0;
+  double extract_ms = 0.0;
+};
+
 inline std::vector<int>
 random_indices_as_ints(const ParameterPartition &partition) {
   std::vector<int> out;
@@ -46,13 +55,18 @@ public:
                                bool collect_reports = true)
       : model_(model), partition_(partition),
         collect_reports_(collect_reports) {
+    const auto parameter_start = std::chrono::steady_clock::now();
     had::g_ADGraph = &tape_.graph;
     ModelReportContext ctx;
     model_.initialize(ctx);
     fixed_ad_ = to_ad(fixed);
     random_ad_ = to_ad(random);
     full_ad_ = merge_parameters(fixed_ad_, random_ad_, partition_);
+    const auto parameter_end = std::chrono::steady_clock::now();
+    const auto record_start = parameter_end;
     objective_ = model_.template evaluate<AD>(full_ad_, ctx);
+    const auto record_end = std::chrono::steady_clock::now();
+    const auto plan_start = record_end;
     std::vector<had::VertexId> fixed_vertices, random_vertices;
     for (const auto &parameter : fixed_ad_)
       fixed_vertices.push_back(parameter.varId);
@@ -60,7 +74,40 @@ public:
       random_vertices.push_back(parameter.varId);
     graph_plan_.Build(tape_.graph, fixed_vertices, random_vertices,
                       objective_.varId);
+    had::VertexId parameter_vertex_count = 0;
+    for (had::VertexId id : fixed_vertices)
+      parameter_vertex_count = std::max(parameter_vertex_count, id + 1);
+    for (had::VertexId id : random_vertices)
+      parameter_vertex_count = std::max(parameter_vertex_count, id + 1);
+    fixed_vertex_to_index_.assign(parameter_vertex_count, -1);
+    random_vertex_to_index_.assign(parameter_vertex_count, -1);
+    for (size_t i = 0; i < fixed_ad_.size(); ++i)
+      fixed_vertex_to_index_[fixed_ad_[i].varId] = static_cast<int>(i);
+    for (size_t i = 0; i < random_ad_.size(); ++i)
+      random_vertex_to_index_[random_ad_[i].varId] = static_cast<int>(i);
     random_idx_ = random_indices_as_ints(partition_);
+    const auto plan_end = std::chrono::steady_clock::now();
+    construction_parameter_ms_ =
+        std::chrono::duration<double, std::milli>(
+            parameter_end - parameter_start).count();
+    construction_record_ms_ =
+        std::chrono::duration<double, std::milli>(
+            record_end - record_start).count();
+    construction_plan_ms_ =
+        std::chrono::duration<double, std::milli>(
+            plan_end - plan_start).count();
+  }
+
+  double construction_parameter_ms() const {
+    return construction_parameter_ms_;
+  }
+
+  double construction_record_ms() const {
+    return construction_record_ms_;
+  }
+
+  double construction_plan_ms() const {
+    return construction_plan_ms_;
   }
 
   RandomEffectHessianResult Evaluate(const std::vector<double> &fixed,
@@ -76,7 +123,9 @@ public:
     for (size_t i = 0; i < random.size(); ++i)
       set_value(random_ad_[i], random[i]);
     tape_.forward();
-    PropagateRandomHessianRestricted(tape_.graph, graph_plan_);
+    last_hessian_push_count_ = 0;
+    PropagateRandomHessianRestricted(tape_.graph, graph_plan_,
+                                     &last_hessian_push_count_);
     Eigen::VectorXd g = extract_gradient(random_ad_);
     if (pattern_.empty()) {
       auto &cache = laplace_pattern_cache();
@@ -134,7 +183,7 @@ public:
       H = hessian_pattern_template_;
       for (int outer = 0; outer < H.outerSize(); ++outer)
         for (Eigen::SparseMatrix<double>::InnerIterator it(H, outer); it; ++it)
-          it.valueRef() = get_hessian(
+          it.valueRef() = hessian_value(
               full_ad_[random_idx_[static_cast<size_t>(it.row())]],
               full_ad_[random_idx_[static_cast<size_t>(it.col())]]);
     } else {
@@ -142,8 +191,9 @@ public:
       entries.reserve(pattern_.size());
       for (const auto &ij : pattern_) {
         const double value =
-            get_hessian(full_ad_[random_idx_[static_cast<size_t>(ij.first)]],
-                        full_ad_[random_idx_[static_cast<size_t>(ij.second)]]);
+            hessian_value(
+                full_ad_[random_idx_[static_cast<size_t>(ij.first)]],
+                full_ad_[random_idx_[static_cast<size_t>(ij.second)]]);
         if (std::abs(value) > drop_tol)
           entries.emplace_back(ij.first, ij.second, value);
       }
@@ -168,6 +218,72 @@ public:
       result.gradient_random_m[static_cast<size_t>(i)] = g[i];
     result.gradient_norm_m =
         random_effect_gradient_norm(result.gradient_random_m);
+    return result;
+  }
+
+  FixedGradientMixedHessianResult
+  EvaluateFixedGradientMixedHessian(const std::vector<double> &fixed,
+                                    const std::vector<double> &random) {
+    if (fixed.size() != fixed_ad_.size() ||
+        random.size() != random_ad_.size())
+      throw std::invalid_argument(
+          "RandomEffectHessianWorkspace parameter length mismatch");
+    had::g_ADGraph = &tape_.graph;
+    for (size_t i = 0; i < fixed.size(); ++i)
+      set_value(fixed_ad_[i], fixed[i]);
+    for (size_t i = 0; i < random.size(); ++i)
+      set_value(random_ad_[i], random[i]);
+    const auto replay_start = std::chrono::steady_clock::now();
+    tape_.forward();
+    const auto replay_end = std::chrono::steady_clock::now();
+    PropagateMixedHessianRestricted(tape_.graph, graph_plan_);
+    const auto propagate_end = std::chrono::steady_clock::now();
+
+    FixedGradientMixedHessianResult result;
+    result.fixed_gradient_m.resize(
+        static_cast<Eigen::Index>(fixed_ad_.size()));
+    result.mixed_hessian_m.resize(
+        static_cast<Eigen::Index>(random_ad_.size()),
+        static_cast<Eigen::Index>(fixed_ad_.size()));
+    result.mixed_hessian_m.setZero();
+    for (size_t j = 0; j < fixed_ad_.size(); ++j) {
+      result.fixed_gradient_m[static_cast<Eigen::Index>(j)] =
+          had::GetAdjoint(fixed_ad_[j]);
+    }
+    const auto extract_mixed_tree = [this, &result](had::VertexId outer) {
+      const int outer_fixed = fixed_vertex_to_index_[outer];
+      const int outer_random = random_vertex_to_index_[outer];
+      tape_.graph.ForEachSoEdge(
+          outer, [this, &result, outer_fixed, outer_random](
+                     had::VertexId inner, had::Real value) {
+        const int inner_fixed =
+            inner < fixed_vertex_to_index_.size()
+                ? fixed_vertex_to_index_[inner]
+                : -1;
+        const int inner_random =
+            inner < random_vertex_to_index_.size()
+                ? random_vertex_to_index_[inner]
+                : -1;
+        if (outer_random >= 0 && inner_fixed >= 0)
+          result.mixed_hessian_m(outer_random, inner_fixed) = value;
+        else if (outer_fixed >= 0 && inner_random >= 0)
+          result.mixed_hessian_m(inner_random, outer_fixed) = value;
+      });
+    };
+    for (const auto &parameter : fixed_ad_)
+      extract_mixed_tree(parameter.varId);
+    for (const auto &parameter : random_ad_)
+      extract_mixed_tree(parameter.varId);
+    const auto extract_end = std::chrono::steady_clock::now();
+    result.replay_ms =
+        std::chrono::duration<double, std::milli>(
+            replay_end - replay_start).count();
+    result.propagate_ms =
+        std::chrono::duration<double, std::milli>(
+            propagate_end - replay_end).count();
+    result.extract_ms =
+        std::chrono::duration<double, std::milli>(
+            extract_end - propagate_end).count();
     return result;
   }
 
@@ -216,18 +332,47 @@ public:
     return newton_factorization_;
   }
 
+  std::size_t last_hessian_push_count() const {
+    return last_hessian_push_count_;
+  }
+
+  had::ADGraphMemoryStatistics graph_memory_statistics() const {
+    return had::MeasureADGraphMemory(tape_.graph);
+  }
+
+  std::size_t recorded_vertex_count() const {
+    return tape_.graph.vertices.size();
+  }
+
+  std::shared_ptr<const had::SharedHessianTopology>
+  FreezeHessianTopology(
+      std::shared_ptr<const had::SharedHessianTopology> candidate = nullptr) {
+    return tape_.graph.FreezeHessianTopology(std::move(candidate));
+  }
+
 private:
+  double hessian_value(const AD& a, const AD& b) const {
+    if (a.varId == b.varId)
+      return tape_.graph.selfSoEdges[a.varId];
+    return GetOffDiagonalHessian(tape_.graph, a.varId, b.varId);
+  }
+
   Model &model_;
   ParameterPartition partition_;
   TapeContext tape_;
   std::vector<AD> fixed_ad_, random_ad_, full_ad_;
+  std::vector<int> fixed_vertex_to_index_, random_vertex_to_index_;
   AD objective_;
   LaplaceGraphPlan graph_plan_;
   std::vector<int> random_idx_;
+  double construction_parameter_ms_ = 0.0;
+  double construction_record_ms_ = 0.0;
+  double construction_plan_ms_ = 0.0;
   SparseHessianPattern pattern_;
   Eigen::SparseMatrix<double> hessian_pattern_template_;
   SparseLDLTFactorizationCache newton_factorization_;
   bool collect_reports_ = true;
+  std::size_t last_hessian_push_count_ = 0;
 };
 
 // Evaluate f(theta, u), gradient wrt u, and sparse Hessian wrt u.

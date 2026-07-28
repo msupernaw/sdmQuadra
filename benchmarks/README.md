@@ -502,3 +502,31 @@ Rscript benchmarks/backend-worker.R quadra-lbfgs spatiotemporal 5000
 When the installed `sdmTMB` predates the Quadra backend, the worker
 automatically loads the current checkout with `pkgload`. If `pkgload` is not
 available, install the checkout first with `R CMD INSTALL .`.
+
+## 2026-07-28: synchronized low-memory Quadra engine
+
+The vendored Quadra engine is synchronized with the optimized WHAM Quadra
+snapshot. This brings the compact replay plan, shared/frozen graph topology,
+reusable sparse factorization state, lazy implicit Hdot providers, and reverse
+Hessian trace contraction into sdmTMB without changing its public backend API.
+
+Each row below ran in a fresh process with 5,000 prediction rows. The "before"
+tree included the preceding sdmTMB parallel-Hdot work; the "after" tree differs
+only by the synchronized shared Quadra engine.
+
+| Model / optimizer | Before fit (s) | After fit (s) | Fit reduction | Before peak RSS (MiB) | After peak RSS (MiB) |
+|---|---:|---:|---:|---:|---:|
+| Spatial, Quadra + `nlminb` | 0.055 | 0.038 | 30.9% | 298.9 | 285.4 |
+| Spatial, Quadra + native L-BFGS | 0.077 | 0.052 | 32.5% | 302.3 | 252.3 |
+| Spatiotemporal, Quadra + `nlminb` | 0.357 | 0.287 | 19.6% | 336.2 | 285.7 |
+| Spatiotemporal, Quadra + native L-BFGS | 0.493 | 0.380 | 22.9% | 338.1 | 269.1 |
+
+For context, the after-sync spatiotemporal Quadra fit was effectively tied
+with TMB (0.287 versus 0.291 seconds) while using 285.7 MiB rather than
+1,139.4 MiB peak RSS. A separate 200-call alternating-parameter gradient
+benchmark improved from 7.20 to 5.77 milliseconds per evaluation (19.9%) with
+an unchanged objective of 2347.2627939846.
+
+The focused Quadra tests and complete sdmTMB test suite pass with the
+synchronized engine. The full suite has three expected skips when the optional
+`sdmTMBextra` package is unavailable.
